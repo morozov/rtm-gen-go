@@ -36,6 +36,13 @@ func {{ .Builder }}(provider ClientProvider, format Formatter) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   {{ printf "%q" .CLIName }},
 		Short: {{ printf "%q" .Short }},
+{{- if .References }}
+		Annotations: map[string]string{
+{{- range .References }}
+			"ref.{{ .N }}": {{ printf "%q" .URL }},
+{{- end }}
+		},
+{{- end }}
 		RunE: func(cmd *cobra.Command, _ []string) error {
 {{- if .ParamsType }}
 			params := {{ $.ClientPackageAlias }}.{{ .ParamsType }}{

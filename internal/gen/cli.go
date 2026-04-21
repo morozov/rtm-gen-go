@@ -125,6 +125,7 @@ type cliMethodData struct {
 	Builder    string
 	Required   []cliArg
 	Optional   []cliArg
+	References []reference
 }
 
 type cliArg struct {
@@ -208,6 +209,13 @@ func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error
 	}
 	cliName := cliPath[len(cliPath)-1]
 
+	// Per spec 006, footnote numbering is per-command and shared
+	// across the method description and all flag descriptions.
+	// Normalize the method description first so any anchors there
+	// claim [^1]/[^2]/... before the flags do.
+	b := newRefBuilder()
+	short := normalizeDescription(m.Description, b)
+
 	var required, optional []cliArg
 	for _, a := range m.Arguments {
 		if _, skip := autoInjected[a.Name]; skip {
@@ -217,7 +225,7 @@ func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error
 			FlagName:    strings.ReplaceAll(a.Name, "_", "-"),
 			VarName:     naming.GoLocal(a.Name),
 			GoField:     naming.GoField(a.Name),
-			Description: normalizeDescription(a.Description),
+			Description: normalizeDescription(a.Description, b),
 		}
 		if a.Optional {
 			optional = append(optional, ca)
@@ -233,11 +241,12 @@ func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error
 	return cliMethodData{
 		CLIName:    cliName,
 		GoName:     goName,
-		Short:      normalizeDescription(m.Description),
+		Short:      short,
 		ParamsType: params,
 		Builder:    builder,
 		Required:   required,
 		Optional:   optional,
+		References: b.references(),
 	}, nil
 }
 

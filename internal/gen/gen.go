@@ -132,13 +132,20 @@ type methodData struct {
 }
 
 // descHereBoilerplate matches RTM's "See here for more details"
-// links — always `<a>here</a>` or `<a>See here</a>` followed by
-// "for more details." An empirical sweep found 112 of 124
-// anchors in the reflection spec follow this pattern, each
-// pointing at an RTM web page that agents and terminal users
-// cannot follow. Stripping the phrase entirely leaves cleaner
-// prose.
-var descHereBoilerplate = regexp.MustCompile(`(?i)\s*<a[^>]*>\s*(?:see\s+)?here\s*</a>\s+for\s+more\s+details\s*\.?`)
+// boilerplate anchor phrase. Captures the href so we can record
+// a footnote reference. An empirical sweep found 112 of 124
+// anchors in the reflection spec follow this pattern — replacing
+// the whole phrase with a compact footnote marker (or empty
+// text, when no builder is supplied) keeps the surrounding prose
+// readable.
+var descHereBoilerplate = regexp.MustCompile(`(?i)\s*<a\s+[^>]*?href="([^"]+)"[^>]*>\s*(?:see\s+)?here\s*</a>\s+for\s+more\s+details\s*\.?`)
+
+// descAnchor matches any `<a href="...">content</a>` pair and
+// captures the href and the inner content. Applied after
+// descHereBoilerplate, so only non-boilerplate anchors (12 of
+// 124 in the reflection spec, carrying meaningful content like
+// "Smart Add" or "rtm.time.parse") remain for it to process.
+var descAnchor = regexp.MustCompile(`(?is)<a\s+[^>]*?href="([^"]+)"[^>]*>(.*?)</a>`)
 
 // descHTMLFormatTag matches a whitelist of HTML formatting tags
 // that RTM sprinkles into descriptions (<b>, <code>, <br>, …).
@@ -158,18 +165,78 @@ var descWhitespace = regexp.MustCompile(`\s+`)
 // intends a space in those positions.
 var descSpaceBeforePunct = regexp.MustCompile(`\s+([,.;:])`)
 
+// reference is one footnote entry attached to a cobra command.
+type reference struct {
+	N   int
+	URL string
+}
+
+// refBuilder collects the per-command footnote references as
+// anchors are encountered in a description. Each distinct
+// resolved URL gets one number; duplicates reuse the existing
+// number. Numbers count up from 1 in first-appearance order.
+type refBuilder struct {
+	byURL map[string]int
+	refs  []reference
+}
+
+func newRefBuilder() *refBuilder {
+	return &refBuilder{byURL: map[string]int{}}
+}
+
+// mark returns the footnote number for href, assigning a fresh
+// one if this is the first time href is seen. href is resolved
+// through the redirects map before being keyed.
+func (b *refBuilder) mark(href string) int {
+	url := resolveDocsURL(href)
+	if n, ok := b.byURL[url]; ok {
+		return n
+	}
+	n := len(b.refs) + 1
+	b.byURL[url] = n
+	b.refs = append(b.refs, reference{N: n, URL: url})
+	return n
+}
+
+// references returns the ordered slice of references gathered so
+// far. The slice is nil when no anchors were encountered.
+func (b *refBuilder) references() []reference {
+	return b.refs
+}
+
 // normalizeDescription returns a single-line, whitespace-
 // collapsed, HTML-stripped form of a reflection description,
 // safe to embed in a Go doc comment or a cobra Short field.
 //
+// When b is non-nil, anchors become `[^N]` footnote markers and
+// the builder accumulates the href → number mapping. When b is
+// nil (client godoc context), anchors lose their tags: boilerplate
+// "See here for more details." phrases are dropped; other anchors
+// keep their inner content verbatim. Either mode strips known
+// HTML formatting tags and decodes HTML entities.
+//
 // Order of operations matters: the "See here for more details"
-// phrase is stripped while anchor tags are still present so the
+// phrase is handled while anchor tags are still present so the
 // regex can use them as anchor points; known formatting tags
 // come out next (with space substitution); HTML entities are
 // decoded last so that `&lt;list&gt;` reads as literal `<list>`
 // in the output rather than being mistaken for a tag to strip.
-func normalizeDescription(s string) string {
-	s = descHereBoilerplate.ReplaceAllString(s, "")
+func normalizeDescription(s string, b *refBuilder) string {
+	s = descHereBoilerplate.ReplaceAllStringFunc(s, func(match string) string {
+		if b == nil {
+			return ""
+		}
+		sub := descHereBoilerplate.FindStringSubmatch(match)
+		return fmt.Sprintf("[^%d]", b.mark(sub[1]))
+	})
+	s = descAnchor.ReplaceAllStringFunc(s, func(match string) string {
+		sub := descAnchor.FindStringSubmatch(match)
+		href, content := sub[1], sub[2]
+		if b == nil {
+			return content
+		}
+		return fmt.Sprintf("%s[^%d]", content, b.mark(href))
+	})
 	s = descHTMLFormatTag.ReplaceAllString(s, " ")
 	s = html.UnescapeString(s)
 	s = descWhitespace.ReplaceAllString(s, " ")
@@ -261,7 +328,7 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 		ad := argData{
 			Name:        a.Name,
 			GoName:      naming.GoField(a.Name),
-			Description: normalizeDescription(a.Description),
+			Description: normalizeDescription(a.Description, nil),
 		}
 		if a.Optional {
 			optional = append(optional, ad)
@@ -276,7 +343,7 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	return methodData{
 		RTMName:       m.Name,
 		GoName:        goName,
-		Description:   normalizeDescription(m.Description),
+		Description:   normalizeDescription(m.Description, nil),
 		ParamsType:    params,
 		Required:      required,
 		Optional:      optional,
