@@ -10,7 +10,7 @@ import (
 	"example.com/rtm"
 )
 
-func TestReflectionGetMethodInfo(t *testing.T) {
+func TestNoArgCallHitsRTM(t *testing.T) {
 	const body = `<rsp stat="ok"/>`
 	var captured *http.Request
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -22,9 +22,7 @@ func TestReflectionGetMethodInfo(t *testing.T) {
 	c := rtm.NewClient("test-key", "test-secret", "")
 	c.BaseURL = srv.URL + "/rest/"
 
-	got, err := c.Reflection.GetMethodInfo(context.Background(), rtm.ReflectionGetMethodInfoParams{
-		MethodName: "rtm.auth.checkToken",
-	})
+	got, err := c.Fixture.NoArg(context.Background())
 	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
@@ -35,24 +33,21 @@ func TestReflectionGetMethodInfo(t *testing.T) {
 		t.Fatalf("no request captured")
 	}
 	q := captured.URL.Query()
-	if q.Get("method") != "rtm.reflection.getMethodInfo" {
+	if q.Get("method") != "rtm.fixture.noArg" {
 		t.Fatalf("wrong method: %s", q.Get("method"))
-	}
-	if q.Get("method_name") != "rtm.auth.checkToken" {
-		t.Fatalf("wrong method_name: %s", q.Get("method_name"))
 	}
 	if q.Get("api_key") != "test-key" {
 		t.Fatalf("api_key not auto-injected, got %q", q.Get("api_key"))
 	}
 	if q.Get("auth_token") != "" {
-		t.Fatalf("reflection should not carry auth_token, got %q", q.Get("auth_token"))
+		t.Fatalf("no-login method should not carry auth_token, got %q", q.Get("auth_token"))
 	}
 	if q.Get("api_sig") != "" {
-		t.Fatalf("reflection should not be signed, got %q", q.Get("api_sig"))
+		t.Fatalf("no-signing method should not be signed, got %q", q.Get("api_sig"))
 	}
 }
 
-func TestSignedCall(t *testing.T) {
+func TestSignedCallInjectsAuthAndSig(t *testing.T) {
 	var captured *http.Request
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = r
@@ -63,12 +58,18 @@ func TestSignedCall(t *testing.T) {
 	c := rtm.NewClient("key", "secret", "token")
 	c.BaseURL = srv.URL + "/rest/"
 
-	if _, err := c.Contacts.GetList(context.Background()); err != nil {
+	_, err := c.Fixture.RequiredOnly(context.Background(), rtm.FixtureRequiredOnlyParams{
+		ItemID: "123",
+	})
+	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
 	q := captured.URL.Query()
 	if q.Get("auth_token") != "token" {
 		t.Fatalf("auth_token missing, got %q", q.Get("auth_token"))
+	}
+	if q.Get("item_id") != "123" {
+		t.Fatalf("item_id missing, got %q", q.Get("item_id"))
 	}
 	if sig := q.Get("api_sig"); len(sig) != 32 {
 		t.Fatalf("api_sig should be MD5 hex (32 chars), got %q", sig)
@@ -77,7 +78,9 @@ func TestSignedCall(t *testing.T) {
 
 func TestMissingAuthTokenReturnsSentinel(t *testing.T) {
 	c := rtm.NewClient("key", "secret", "")
-	_, err := c.Contacts.GetList(context.Background())
+	_, err := c.Fixture.RequiredOnly(context.Background(), rtm.FixtureRequiredOnlyParams{
+		ItemID: "1",
+	})
 	if err == nil {
 		t.Fatalf("expected error for missing auth token")
 	}

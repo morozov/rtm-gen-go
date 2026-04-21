@@ -1,0 +1,84 @@
+{
+  "rtm.fixture.noArg": {
+    "name": "rtm.fixture.noArg",
+    "needslogin": "0",
+    "needssigning": "0",
+    "needstimeline": "0",
+    "requiredperms": "0",
+    "description": "Synthetic: no user-facing arguments.",
+    "response": "<rsp stat=\"ok\"/>",
+    "arguments": {
+      "argument": [
+        {"name": "api_key", "optional": "0", "$t": "API key."}
+      ]
+    },
+    "errors": {
+      "error": [
+        {"code": "1", "message": "Bad request", "$t": "Synthetic error."}
+      ]
+    }
+  },
+  "rtm.fixture.requiredOnly": {
+    "name": "rtm.fixture.requiredOnly",
+    "needslogin": "1",
+    "needssigning": "1",
+    "needstimeline": "0",
+    "requiredperms": "0",
+    "description": "Synthetic: single required user argument.",
+    "response": "<rsp stat=\"ok\"/>",
+    "arguments": {
+      "argument": [
+        {"name": "api_key", "optional": "0", "$t": "API key."},
+        {"name": "auth_token", "optional": "0", "$t": "Auth token."},
+        {"name": "item_id", "optional": "0", "$t": "Required item identifier."}
+      ]
+    },
+    "errors": {
+      "error": [
+        {"code": "1", "message": "Bad request", "$t": "Synthetic error."}
+      ]
+    }
+  },
+  "rtm.fixture.mixed": {
+    "name": "rtm.fixture.mixed",
+    "needslogin": "1",
+    "needssigning": "1",
+    "needstimeline": "1",
+    "requiredperms": "0",
+    "description": "Synthetic: required and optional arguments, timeline required.",
+    "response": "<rsp stat=\"ok\"/>",
+    "arguments": {
+      "argument": [
+        {"name": "api_key", "optional": "0", "$t": "API key."},
+        {"name": "auth_token", "optional": "0", "$t": "Auth token."},
+        {"name": "timeline", "optional": "0", "$t": "Timeline."},
+        {"name": "list_id", "optional": "0", "$t": "Required list identifier."},
+        {"name": "note_text", "optional": "1", "$t": "Optional note text."}
+      ]
+    },
+    "errors": {
+      "error": [
+        {"code": "1", "message": "Bad request", "$t": "Synthetic error."}
+      ]
+    }
+  },
+  "rtm.fixture.sub.nested": {
+    "name": "rtm.fixture.sub.nested",
+    "needslogin": "0",
+    "needssigning": "0",
+    "needstimeline": "0",
+    "requiredperms": "0",
+    "description": "Synthetic: method under a nested service.",
+    "response": "<rsp stat=\"ok\"/>",
+    "arguments": {
+      "argument": [
+        {"name": "api_key", "optional": "0", "$t": "API key."}
+      ]
+    },
+    "errors": {
+      "error": [
+        {"code": "1", "message": "Bad request", "$t": "Synthetic error."}
+      ]
+    }
+  }
+}

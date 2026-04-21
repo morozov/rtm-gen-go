@@ -16,7 +16,7 @@ import (
 	"github.com/morozov/rtm-gen-go/internal/naming"
 )
 
-const committedDumpPath = "../../api.json"
+const fixturePath = "../apispec/testdata/fixture.json"
 
 func defaultConfig(outDir string) gen.Config {
 	return gen.Config{
@@ -30,7 +30,7 @@ func defaultConfig(outDir string) gen.Config {
 func TestGenerateIsDeterministic(t *testing.T) {
 	t.Parallel()
 
-	spec, err := apispec.Load(committedDumpPath)
+	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
 
 	dir1 := t.TempDir()
@@ -60,7 +60,7 @@ func TestGenerateIsDeterministic(t *testing.T) {
 func TestGenerateEmitsGomodAndPerService(t *testing.T) {
 	t.Parallel()
 
-	spec, err := apispec.Load(committedDumpPath)
+	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
 
 	dir := t.TempDir()
@@ -73,7 +73,7 @@ func TestGenerateEmitsGomodAndPerService(t *testing.T) {
 	}
 	assert.True(t, names["go.mod"], "go.mod must be emitted")
 	assert.True(t, names["client.go"], "core file must be emitted")
-	for _, svc := range []string{"auth.go", "reflection.go", "tasks.go", "tasks_notes.go"} {
+	for _, svc := range []string{"fixture.go", "fixture_sub.go"} {
 		assert.Truef(t, names[svc], "service file %s must be emitted", svc)
 	}
 }
@@ -126,7 +126,7 @@ func defaultCLIConfig(outDir string) gen.CLIConfig {
 func TestGenerateCLIIsDeterministic(t *testing.T) {
 	t.Parallel()
 
-	spec, err := apispec.Load(committedDumpPath)
+	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
 
 	dir1 := t.TempDir()
@@ -160,12 +160,12 @@ func TestGenerateCLIRequiresConfig(t *testing.T) {
 
 // TestGeneratedCLIBuildsAndReachesAllCommands generates both modules,
 // stitches them with a local replace, populates cobra via `go mod
-// tidy`, and asserts the constructed command tree covers every RTM
-// method listed in the committed spec.
+// tidy`, and asserts the constructed command tree covers every method
+// listed in the synthetic fixture.
 func TestGeneratedCLIBuildsAndReachesAllCommands(t *testing.T) {
 	t.Parallel()
 
-	spec, err := apispec.Load(committedDumpPath)
+	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
 
 	root := t.TempDir()
@@ -235,14 +235,15 @@ func expectedCLIPaths(spec apispec.Spec) ([]string, error) {
 	return out, nil
 }
 
-// TestGeneratedModulePassesBoundarySuite generates a self-contained module
-// from the committed spec, injects a handwritten httptest-based test from
-// testdata/, and runs `go test` against the result. This is the end-to-end
-// verification that the generator's output is usable.
+// TestGeneratedModulePassesBoundarySuite generates a self-contained
+// module from the synthetic fixture, injects a handwritten httptest-
+// based test from testdata/, and runs `go test` against the result.
+// This is the end-to-end verification that the generator's output
+// is usable.
 func TestGeneratedModulePassesBoundarySuite(t *testing.T) {
 	t.Parallel()
 
-	spec, err := apispec.Load(committedDumpPath)
+	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
 
 	dir := t.TempDir()

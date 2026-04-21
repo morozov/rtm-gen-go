@@ -11,18 +11,14 @@ import (
 	"github.com/morozov/rtm-gen-go/internal/apispec"
 )
 
-const expectedMethodCount = 64
+var fixturePath = filepath.Join("testdata", "fixture.json")
 
-// committedDumpPath points at the repository-root api.json. The loader
-// test reads it directly; there is no duplicated copy under testdata.
-var committedDumpPath = filepath.Join("..", "..", "api.json")
-
-func TestLoad_CommittedDump(t *testing.T) {
+func TestLoadFixture(t *testing.T) {
 	t.Parallel()
 
-	spec, err := apispec.Load(committedDumpPath)
+	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
-	require.Len(t, spec, expectedMethodCount, "committed api.json should list all RTM methods")
+	require.Len(t, spec, 4, "fixture should list all synthetic methods")
 
 	t.Run("every entry has a matching name", func(t *testing.T) {
 		t.Parallel()
@@ -39,21 +35,19 @@ func TestLoad_CommittedDump(t *testing.T) {
 		}
 	})
 
-	t.Run("checkToken is parsed correctly", func(t *testing.T) {
+	t.Run("mixed method flags and arguments parse correctly", func(t *testing.T) {
 		t.Parallel()
-		m, ok := spec["rtm.auth.checkToken"]
+		m, ok := spec["rtm.fixture.mixed"]
 		require.True(t, ok)
-		assert.Equal(t, "rtm.auth.checkToken", m.Name)
-		assert.False(t, m.NeedsLogin)
-		assert.False(t, m.NeedsSigning)
-		assert.False(t, m.NeedsTimeline)
-		assert.Equal(t, "0", m.RequiredPerms)
-		assert.NotEmpty(t, m.Description)
-		assert.NotEmpty(t, m.Response)
-		require.Len(t, m.Arguments, 2)
+		assert.True(t, m.NeedsLogin)
+		assert.True(t, m.NeedsSigning)
+		assert.True(t, m.NeedsTimeline)
+		require.Len(t, m.Arguments, 5)
 		assert.Equal(t, "api_key", m.Arguments[0].Name)
-		assert.False(t, m.Arguments[0].Optional)
-		assert.Equal(t, "auth_token", m.Arguments[1].Name)
+		assert.Equal(t, "list_id", m.Arguments[3].Name)
+		assert.False(t, m.Arguments[3].Optional)
+		assert.Equal(t, "note_text", m.Arguments[4].Name)
+		assert.True(t, m.Arguments[4].Optional)
 	})
 }
 
