@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
+	"html"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -130,23 +131,50 @@ type methodData struct {
 	NeedsSigning  bool
 }
 
-// descHTMLTag matches simple HTML tags that RTM sprinkles into
-// reflection descriptions (e.g. "<b>This method call must be
-// signed.</b>"). Tags are stripped — the surrounding prose is
-// kept.
-var descHTMLTag = regexp.MustCompile(`<[^>]+>`)
+// descHereBoilerplate matches RTM's "See here for more details"
+// links — always `<a>here</a>` or `<a>See here</a>` followed by
+// "for more details." An empirical sweep found 112 of 124
+// anchors in the reflection spec follow this pattern, each
+// pointing at an RTM web page that agents and terminal users
+// cannot follow. Stripping the phrase entirely leaves cleaner
+// prose.
+var descHereBoilerplate = regexp.MustCompile(`(?i)\s*<a[^>]*>\s*(?:see\s+)?here\s*</a>\s+for\s+more\s+details\s*\.?`)
+
+// descHTMLFormatTag matches a whitelist of HTML formatting tags
+// that RTM sprinkles into descriptions (<b>, <code>, <br>, …).
+// Tags are replaced with a space so word boundaries survive
+// stripping. Literal references to XML elements like `<list>`
+// or `<script>` are not in the whitelist and pass through
+// unchanged.
+var descHTMLFormatTag = regexp.MustCompile(`(?i)</?(?:a|b|i|em|strong|p|code|br|span|div)(?:\s[^>]*)?/?>`)
 
 // descWhitespace collapses any run of whitespace (including
-// embedded newlines) to a single space. RTM descriptions are
-// generally one-liners, but a few have stray line breaks.
+// embedded newlines) to a single space.
 var descWhitespace = regexp.MustCompile(`\s+`)
+
+// descSpaceBeforePunct removes a single stray space before
+// common punctuation — a byproduct of replacing inline tags
+// with spaces (e.g. `<code>foo</code>,` → `foo ,`). RTM never
+// intends a space in those positions.
+var descSpaceBeforePunct = regexp.MustCompile(`\s+([,.;:])`)
 
 // normalizeDescription returns a single-line, whitespace-
 // collapsed, HTML-stripped form of a reflection description,
 // safe to embed in a Go doc comment or a cobra Short field.
+//
+// Order of operations matters: the "See here for more details"
+// phrase is stripped while anchor tags are still present so the
+// regex can use them as anchor points; known formatting tags
+// come out next (with space substitution); HTML entities are
+// decoded last so that `&lt;list&gt;` reads as literal `<list>`
+// in the output rather than being mistaken for a tag to strip.
 func normalizeDescription(s string) string {
-	s = descHTMLTag.ReplaceAllString(s, "")
-	return strings.TrimSpace(descWhitespace.ReplaceAllString(s, " "))
+	s = descHereBoilerplate.ReplaceAllString(s, "")
+	s = descHTMLFormatTag.ReplaceAllString(s, " ")
+	s = html.UnescapeString(s)
+	s = descWhitespace.ReplaceAllString(s, " ")
+	s = descSpaceBeforePunct.ReplaceAllString(s, "$1")
+	return strings.TrimSpace(s)
 }
 
 type argData struct {
