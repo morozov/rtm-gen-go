@@ -4,13 +4,14 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/morozov/rtm-gen-go/internal/apispec"
 	"github.com/morozov/rtm-gen-go/internal/gen"
 )
 
 func runCLI(args []string) error {
 	fs := flag.NewFlagSet("cli", flag.ContinueOnError)
-	specPath := fs.String("spec", "api.json", "path to the RTM reflection dump")
+	specPath := fs.String("spec", "", "path to a local RTM reflection dump (mutually exclusive with -key/-secret)")
+	apiKey := fs.String("key", "", "RTM API key for live spec fetch")
+	apiSecret := fs.String("secret", "", "RTM API secret for live spec fetch")
 	outDir := fs.String("out", "generated/rtm-cli-go", "output directory for the generated module")
 	modulePath := fs.String("module", "github.com/morozov/rtm-cli-go", "Go module path to declare in go.mod")
 	pkgName := fs.String("package", "rtmcli", "Go package name for the generated library")
@@ -23,7 +24,7 @@ func runCLI(args []string) error {
 		return err
 	}
 
-	spec, err := apispec.Load(*specPath)
+	spec, err := loadSpec(*specPath, *apiKey, *apiSecret)
 	if err != nil {
 		return err
 	}

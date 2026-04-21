@@ -23,6 +23,11 @@ in temp directories. The output modules have not yet been
 published, so today the practical workflow is to generate locally
 and stitch with a `replace` directive; see below.
 
+Live spec fetch (generator → RTM directly) is behind the
+`livefetch` build tag and requires a local sibling checkout of
+`rtm-client-go`. The default build, default test suite, and CI
+path do not require it.
+
 ## Using the generator
 
 Install from source:
@@ -42,16 +47,27 @@ in this repo), and default to the published module paths.
 
 ### Generate the client module
 
+From a local spec file:
+
 ```sh
 rtm-gen client \
+  -spec ./path/to/api.json \
   -out generated/rtm-client-go \
   -module github.com/morozov/rtm-client-go \
   -package rtm
 ```
 
-Reads `api.json` from the working directory (override with
-`-spec`). Writes `go.mod`, a core `client.go`, and one file per
-RTM service.
+From a live RTM fetch (requires the `livefetch` build tag and a
+sibling `../rtm-client-go/` checkout; see
+[Live-fetch setup](#live-fetch-setup) below):
+
+```sh
+go run -tags=livefetch ./cmd/rtm-gen client \
+  -key $RTM_API_KEY -secret $RTM_API_SECRET \
+  -out generated/rtm-client-go
+```
+
+Writes `go.mod`, a core `client.go`, and one file per RTM service.
 
 ### Generate the CLI module
 
@@ -75,6 +91,36 @@ The CLI requires the client module. For local development (until
 
 After that, `go build ./cmd/rtm` inside the CLI module produces
 the `rtm` binary.
+
+### Live-fetch setup
+
+The `livefetch` build tag enables the generator to pull the RTM
+spec straight from RTM at generation time, using the pinned
+`rtm-client-go` module. Because `rtm-client-go` is not yet
+published, the build is wired via a local `replace` pointing at
+`../rtm-client-go/`. To enable:
+
+```sh
+# From the parent directory of this repo:
+go run ./rtm-gen-go/cmd/rtm-gen client \
+  -spec ./rtm-gen-go/api.json \
+  -out ./rtm-client-go
+
+# Then, back in rtm-gen-go, live fetch is available:
+go run -tags=livefetch ./cmd/rtm-gen client \
+  -key $RTM_API_KEY -secret $RTM_API_SECRET \
+  -out generated/rtm-client-go
+```
+
+Without the sibling directory:
+- Default `go build`, `go test`, and `go tool golangci-lint` all
+  still work.
+- `go mod tidy` and `-tags=livefetch` builds fail because the
+  `replace` target is missing.
+
+Once `rtm-client-go` is published, the `replace` directive will
+be dropped in favour of a normal `require` on the tagged
+version, and the sibling requirement will go away.
 
 ## Using the generated client
 

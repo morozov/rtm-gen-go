@@ -66,6 +66,7 @@ func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimel
 		params = url.Values{}
 	}
 	params.Set("method", method)
+	params.Set("format", "json")
 	params.Set("api_key", c.APIKey)
 	if needsLogin {
 		if c.AuthToken == "" {
