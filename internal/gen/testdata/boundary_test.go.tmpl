@@ -12,6 +12,8 @@ import (
 
 const okEmpty = `{"rsp":{"stat":"ok"}}`
 
+// TestNoArgCallHitsRTM exercises the wire side: no credentials
+// required, method name set, no auth_token or api_sig.
 func TestNoArgCallHitsRTM(t *testing.T) {
 	var captured *http.Request
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -23,16 +25,8 @@ func TestNoArgCallHitsRTM(t *testing.T) {
 	c := rtm.NewClient("test-key", "test-secret", "")
 	c.BaseURL = srv.URL + "/rest/"
 
-	got, err := c.Fixture.NoArg(context.Background())
-	if err != nil {
+	if _, err := c.Fixture.NoArg(context.Background()); err != nil {
 		t.Fatalf("call failed: %v", err)
-	}
-	// Envelope stripped: {"rsp":{"stat":"ok"}} becomes {}.
-	if string(got) != "{}" {
-		t.Fatalf("empty-ok envelope should strip to {}, got %q", got)
-	}
-	if captured == nil {
-		t.Fatalf("no request captured")
 	}
 	q := captured.URL.Query()
 	if q.Get("method") != "rtm.fixture.noArg" {
@@ -53,17 +47,16 @@ func TestSignedCallInjectsAuthAndSig(t *testing.T) {
 	var captured *http.Request
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = r
-		_, _ = w.Write([]byte(okEmpty))
+		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","item":{"id":"1","active":"1","label":"x"}}}`))
 	}))
 	defer srv.Close()
 
 	c := rtm.NewClient("key", "secret", "token")
 	c.BaseURL = srv.URL + "/rest/"
 
-	_, err := c.Fixture.RequiredOnly(context.Background(), rtm.FixtureRequiredOnlyParams{
+	if _, err := c.Fixture.RequiredOnly(context.Background(), rtm.FixtureRequiredOnlyParams{
 		ItemID: "123",
-	})
-	if err != nil {
+	}); err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
 	q := captured.URL.Query()
@@ -91,23 +84,33 @@ func TestMissingAuthTokenReturnsSentinel(t *testing.T) {
 	}
 }
 
-func TestEnvelopeStripReturnsInnerBody(t *testing.T) {
+// TestTypedResponseCoercesValues walks the full flow: stringly-
+// typed wire values are unmarshalled into typed Go fields. The
+// fixture method rtm.fixture.requiredOnly has item.id and
+// item.active in typeTable, so the generated response struct
+// carries rtmInt and rtmBool fields respectively. item.label is
+// absent from typeTable, so it stays a plain string.
+func TestTypedResponseCoercesValues(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","item":{"id":"42","name":"Answer"}}}`))
+		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","item":{"id":"42","active":"1","label":"demo"}}}`))
 	}))
 	defer srv.Close()
 
-	c := rtm.NewClient("k", "s", "")
+	c := rtm.NewClient("k", "s", "token")
 	c.BaseURL = srv.URL + "/rest/"
 
-	got, err := c.Fixture.NoArg(context.Background())
+	got, err := c.Fixture.RequiredOnly(context.Background(), rtm.FixtureRequiredOnlyParams{ItemID: "1"})
 	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
-	// Envelope stripped + stat removed: the "item" key survives.
-	want := `{"item":{"id":"42","name":"Answer"}}`
-	if string(got) != want {
-		t.Fatalf("inner-body mismatch:\nwant %s\ngot  %s", want, got)
+	if got.Item.ID != 42 {
+		t.Fatalf("id wire %q should coerce to rtmInt(42), got %d", "42", got.Item.ID)
+	}
+	if !bool(got.Item.Active) {
+		t.Fatalf("active wire %q should coerce to rtmBool(true), got %v", "1", got.Item.Active)
+	}
+	if got.Item.Label != "demo" {
+		t.Fatalf("label should round-trip as string, got %q", got.Item.Label)
 	}
 }
 

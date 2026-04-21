@@ -2,7 +2,6 @@ package host_test
 
 import (
 	"bufio"
-	"encoding/json"
 	"io"
 	"os"
 	"sort"
@@ -20,7 +19,7 @@ func TestCommandTreeReachesEveryMethod(t *testing.T) {
 	commands.Register(
 		root,
 		func() *rtm.Client { return nil },
-		func(_ io.Writer, _ json.RawMessage) error { return nil },
+		func(_ io.Writer, _ any) error { return nil },
 	)
 
 	expected := readExpectedPaths(t)

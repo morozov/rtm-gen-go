@@ -5,6 +5,7 @@ package {{ .PackageName }}
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 )
 
@@ -28,12 +29,15 @@ type {{ .ParamsType }} struct {
 }
 {{- end }}
 
+// {{ .ResponseType }} is the typed response for {{ .RTMName }}.
+type {{ .ResponseType }} {{ .ResponseGoSource }}
+
 // {{ .GoName }} calls {{ .RTMName }}.
 {{- if .Description }}
 //
 // {{ .Description }}
 {{- end }}
-func (s *{{ $.TypeName }}) {{ .GoName }}(ctx context.Context{{ if .ParamsType }}, p {{ .ParamsType }}{{ end }}) (json.RawMessage, error) {
+func (s *{{ $.TypeName }}) {{ .GoName }}(ctx context.Context{{ if .ParamsType }}, p {{ .ParamsType }}{{ end }}) (*{{ .ResponseType }}, error) {
 	vals := url.Values{}
 {{- range .Required }}
 	vals.Set({{ printf "%q" .Name }}, p.{{ .GoName }})
@@ -43,6 +47,14 @@ func (s *{{ $.TypeName }}) {{ .GoName }}(ctx context.Context{{ if .ParamsType }}
 		vals.Set({{ printf "%q" .Name }}, *p.{{ .GoName }})
 	}
 {{- end }}
-	return s.client.Call(ctx, {{ printf "%q" .RTMName }}, {{ .NeedsLogin }}, {{ .NeedsTimeline }}, {{ .NeedsSigning }}, vals)
+	body, err := s.client.Call(ctx, {{ printf "%q" .RTMName }}, {{ .NeedsLogin }}, {{ .NeedsTimeline }}, {{ .NeedsSigning }}, vals)
+	if err != nil {
+		return nil, err
+	}
+	var resp {{ .ResponseType }}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("{{ .RTMName }}: decode response: %w", err)
+	}
+	return &resp, nil
 }
 {{- end }}

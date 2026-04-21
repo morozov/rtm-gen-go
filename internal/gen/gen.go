@@ -120,15 +120,17 @@ type serviceData struct {
 }
 
 type methodData struct {
-	RTMName       string
-	GoName        string
-	Description   string
-	ParamsType    string
-	Required      []argData
-	Optional      []argData
-	NeedsLogin    bool
-	NeedsTimeline bool
-	NeedsSigning  bool
+	RTMName          string
+	GoName           string
+	Description      string
+	ParamsType       string
+	ResponseType     string // Go type name for the method's response struct
+	ResponseGoSource string // Go source for the response struct body
+	Required         []argData
+	Optional         []argData
+	NeedsLogin       bool
+	NeedsTimeline    bool
+	NeedsSigning     bool
 }
 
 // descHereBoilerplate matches RTM's "See here for more details"
@@ -340,16 +342,27 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	if len(required)+len(optional) > 0 {
 		params = strings.TrimSuffix(serviceType, "Service") + goName + "Params"
 	}
+	responseType := strings.TrimSuffix(serviceType, "Service") + goName + "Response"
+	shape, err := parseSampleXML(m.Response)
+	if err != nil {
+		return methodData{}, fmt.Errorf("parse sample response for %s: %w", m.Name, err)
+	}
+	responseSrc, err := emitResponseType(m.Name, shape)
+	if err != nil {
+		return methodData{}, fmt.Errorf("emit response type for %s: %w", m.Name, err)
+	}
 	return methodData{
-		RTMName:       m.Name,
-		GoName:        goName,
-		Description:   normalizeDescription(m.Description, nil),
-		ParamsType:    params,
-		Required:      required,
-		Optional:      optional,
-		NeedsLogin:    m.NeedsLogin,
-		NeedsTimeline: m.NeedsTimeline,
-		NeedsSigning:  m.NeedsSigning,
+		RTMName:          m.Name,
+		GoName:           goName,
+		Description:      normalizeDescription(m.Description, nil),
+		ParamsType:       params,
+		ResponseType:     responseType,
+		ResponseGoSource: responseSrc,
+		Required:         required,
+		Optional:         optional,
+		NeedsLogin:       m.NeedsLogin,
+		NeedsTimeline:    m.NeedsTimeline,
+		NeedsSigning:     m.NeedsSigning,
 	}, nil
 }
 

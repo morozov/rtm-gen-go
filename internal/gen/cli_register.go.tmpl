@@ -3,7 +3,6 @@
 package {{.PackageName}}
 
 import (
-	"encoding/json"
 	"io"
 
 	"github.com/spf13/cobra"
@@ -17,10 +16,11 @@ import (
 // cobra has populated persistent flags.
 type ClientProvider func() *{{.ClientPackageAlias}}.Client
 
-// Formatter writes the inner body of a successful RTM response to
-// the given writer. It is called inside each generated command's
-// RunE after the RTM call succeeds and before the command returns.
-type Formatter func(w io.Writer, body json.RawMessage) error
+// Formatter writes the typed response body of a successful RTM
+// call to the given writer. It is called inside each generated
+// command's RunE after the RTM call succeeds and before the
+// command returns.
+type Formatter func(w io.Writer, body any) error
 
 // Register attaches one *cobra.Command per RTM service (with nested
 // groups for nested services) to root. The provider supplies the

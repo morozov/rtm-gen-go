@@ -25,7 +25,7 @@
     "needstimeline": "0",
     "requiredperms": "0",
     "description": "Synthetic: single required user argument.",
-    "response": "<rsp stat=\"ok\"/>",
+    "response": "<item id=\"42\" active=\"1\" label=\"demo\"/>",
     "arguments": {
       "argument": [
         {"name": "api_key", "optional": "0", "$t": "API key."},
