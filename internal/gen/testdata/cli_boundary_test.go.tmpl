@@ -1,0 +1,92 @@
+package rtmcli_test
+
+import (
+	"bufio"
+	"os"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/spf13/cobra"
+
+	"test.local/rtmcli"
+)
+
+func TestCommandTreeReachesEveryMethod(t *testing.T) {
+	expected := readExpectedPaths(t)
+	got := leafPaths(rtmcli.NewRootCommand())
+
+	sort.Strings(expected)
+	sort.Strings(got)
+
+	want := make(map[string]bool, len(expected))
+	for _, p := range expected {
+		want[p] = true
+	}
+	have := make(map[string]bool, len(got))
+	for _, p := range got {
+		have[p] = true
+	}
+
+	for _, p := range expected {
+		if !have[p] {
+			t.Errorf("expected command not reachable: %s", p)
+		}
+	}
+	for _, p := range got {
+		if !want[p] {
+			t.Errorf("unexpected command path: %s", p)
+		}
+	}
+}
+
+func readExpectedPaths(t *testing.T) []string {
+	t.Helper()
+	f, err := os.Open("expected_paths.txt")
+	if err != nil {
+		t.Fatalf("open expected_paths.txt: %v", err)
+	}
+	defer f.Close()
+
+	var out []string
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	if err := s.Err(); err != nil {
+		t.Fatalf("read expected_paths.txt: %v", err)
+	}
+	return out
+}
+
+func leafPaths(root *cobra.Command) []string {
+	var out []string
+	walk(root, "", &out)
+	return out
+}
+
+func walk(c *cobra.Command, prefix string, out *[]string) {
+	var children []*cobra.Command
+	for _, sub := range c.Commands() {
+		if sub.Hidden || sub.Name() == "help" || sub.Name() == "completion" {
+			continue
+		}
+		children = append(children, sub)
+	}
+	if len(children) == 0 {
+		if prefix != "" {
+			*out = append(*out, prefix)
+		}
+		return
+	}
+	for _, child := range children {
+		next := child.Name()
+		if prefix != "" {
+			next = prefix + " " + child.Name()
+		}
+		walk(child, next, out)
+	}
+}

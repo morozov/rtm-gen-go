@@ -72,6 +72,70 @@ func Flag(argName string) string {
 	return "--" + strings.ReplaceAll(argName, "_", "-")
 }
 
+// initialisms are snake_case tokens rendered in uppercase when they
+// appear as whole segments of a struct field name.
+var initialisms = map[string]string{
+	"api":  "API",
+	"id":   "ID",
+	"url":  "URL",
+	"json": "JSON",
+	"xml":  "XML",
+	"html": "HTML",
+}
+
+// GoField returns the PascalCase Go identifier for a snake_case RTM
+// argument name, recognising common initialisms so "list_id" yields
+// "ListID" and "url" yields "URL".
+func GoField(argName string) string {
+	if argName == "" {
+		return ""
+	}
+	parts := strings.Split(argName, "_")
+	var b strings.Builder
+	b.Grow(len(argName))
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if up, ok := initialisms[strings.ToLower(p)]; ok {
+			b.WriteString(up)
+			continue
+		}
+		b.WriteString(upperFirst(p))
+	}
+	return b.String()
+}
+
+// GoLocal returns the lowerCamelCase Go identifier for a snake_case
+// RTM argument name. The first segment is always lowercase, even if
+// it is an initialism ("api_key" -> "apiKey"); subsequent segments
+// honour the initialism table ("list_id" -> "listID").
+func GoLocal(argName string) string {
+	if argName == "" {
+		return ""
+	}
+	parts := strings.Split(argName, "_")
+	var b strings.Builder
+	b.Grow(len(argName))
+	first := true
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if first {
+			b.WriteString(strings.ToLower(p))
+			first = false
+			continue
+		}
+		if up, ok := initialisms[strings.ToLower(p)]; ok {
+			b.WriteString(up)
+			continue
+		}
+		b.WriteString(upperFirst(p))
+	}
+	return b.String()
+}
+
 func splitMethod(rtmMethod string) ([]string, string, error) {
 	if !strings.HasPrefix(rtmMethod, rtmPrefix) {
 		return nil, "", fmt.Errorf("%q missing %q prefix: %w", rtmMethod, rtmPrefix, ErrInvalidMethodName)

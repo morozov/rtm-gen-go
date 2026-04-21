@@ -1,0 +1,8 @@
+module {{.ModulePath}}
+
+go {{.GoVersion}}
+
+require (
+	{{.ClientModulePath}} {{.ClientVersion}}
+	github.com/spf13/cobra v{{.CobraVersion}}
+)

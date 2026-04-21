@@ -143,6 +143,57 @@ func TestGoService_Errors(t *testing.T) {
 	}
 }
 
+func TestGoLocal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{"empty", "", ""},
+		{"plain", "name", "name"},
+		{"two words", "list_id", "listID"},
+		{"first-segment initialism stays lowercase", "api_key", "apiKey"},
+		{"first segment url", "url", "url"},
+		{"trailing url", "custom_url", "customURL"},
+		{"multi", "from_list_id", "fromListID"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.expect, naming.GoLocal(tc.input))
+		})
+	}
+}
+
+func TestGoField(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{"empty", "", ""},
+		{"plain word", "name", "Name"},
+		{"snake to pascal", "list_id", "ListID"},
+		{"acronym only", "url", "URL"},
+		{"trailing acronym", "custom_url", "CustomURL"},
+		{"api prefix", "api_key", "APIKey"},
+		{"multi acronym", "list_id_url", "ListIDURL"},
+		{"no initialism present", "from_list_id", "FromListID"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.expect, naming.GoField(tc.input))
+		})
+	}
+}
+
 func TestFlag(t *testing.T) {
 	t.Parallel()
 
