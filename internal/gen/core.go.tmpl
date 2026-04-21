@@ -6,12 +6,14 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +31,27 @@ var ErrMissingTimeline = errors.New("timeline required")
 // ErrUnexpectedStatus is returned when the RTM endpoint responds with
 // a non-200 HTTP status.
 var ErrUnexpectedStatus = errors.New("unexpected HTTP status")
+
+// ErrRTMAPI is the sentinel that every RTM application-level error
+// wraps. Use errors.Is(err, ErrRTMAPI) to distinguish "the server
+// said no" from transport/parse failures.
+var ErrRTMAPI = errors.New("rtm api error")
+
+// APIError reports a failure stat from the RTM API. Code is parsed
+// from the string RTM sends; on parse failure it is 0 and the raw
+// code is preserved in Message.
+type APIError struct {
+	Code    int
+	Message string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("rtm api error %d: %s", e.Code, e.Message)
+}
+
+func (e *APIError) Is(target error) bool {
+	return target == ErrRTMAPI
+}
 
 // Client calls the Remember The Milk REST API.
 type Client struct {
@@ -60,8 +83,10 @@ func NewClient(apiKey, apiSecret, authToken string) *Client {
 	return c
 }
 
-// Call issues an RTM API request and returns the raw response body.
-func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimeline, needsSigning bool, params url.Values) ([]byte, error) {
+// Call issues an RTM API request and returns the inner body of a
+// successful response with the envelope's "stat" field removed. On
+// a stat=fail response, it returns *APIError wrapping ErrRTMAPI.
+func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimeline, needsSigning bool, params url.Values) (json.RawMessage, error) {
 	if params == nil {
 		params = url.Values{}
 	}
@@ -91,7 +116,7 @@ func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimel
 	if err != nil {
 		return nil, fmt.Errorf("%s: request: %w", method, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("%s: read body: %w", method, err)
@@ -99,7 +124,59 @@ func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimel
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: %w: %d", method, ErrUnexpectedStatus, resp.StatusCode)
 	}
-	return body, nil
+	return unwrap(method, body)
+}
+
+// unwrap parses the RTM envelope and returns either the inner body
+// (with "stat" removed) on success, or an *APIError on failure.
+func unwrap(method string, body []byte) (json.RawMessage, error) {
+	var outer struct {
+		Rsp map[string]json.RawMessage `json:"rsp"`
+	}
+	if err := json.Unmarshal(body, &outer); err != nil {
+		return nil, fmt.Errorf("%s: parse envelope: %w", method, err)
+	}
+	statRaw, ok := outer.Rsp["stat"]
+	if !ok {
+		return nil, fmt.Errorf("%s: missing stat in response", method)
+	}
+	var stat string
+	if err := json.Unmarshal(statRaw, &stat); err != nil {
+		return nil, fmt.Errorf("%s: parse stat: %w", method, err)
+	}
+	delete(outer.Rsp, "stat")
+
+	switch stat {
+	case "ok":
+		inner, err := json.Marshal(outer.Rsp)
+		if err != nil {
+			return nil, fmt.Errorf("%s: marshal inner: %w", method, err)
+		}
+		return inner, nil
+	case "fail":
+		return nil, buildAPIError(outer.Rsp)
+	default:
+		return nil, fmt.Errorf("%s: unexpected stat %q", method, stat)
+	}
+}
+
+func buildAPIError(rsp map[string]json.RawMessage) *APIError {
+	errRaw, ok := rsp["err"]
+	if !ok {
+		return &APIError{Code: 0, Message: "unknown error"}
+	}
+	var e struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	if err := json.Unmarshal(errRaw, &e); err != nil {
+		return &APIError{Code: 0, Message: "unparseable error payload"}
+	}
+	code, perr := strconv.Atoi(e.Code)
+	if perr != nil {
+		return &APIError{Code: 0, Message: fmt.Sprintf("%s %s", e.Code, e.Msg)}
+	}
+	return &APIError{Code: code, Message: e.Msg}
 }
 
 func (c *Client) sign(params url.Values) string {

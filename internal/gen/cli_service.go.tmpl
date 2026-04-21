@@ -3,8 +3,6 @@
 package {{.PackageName}}
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 {{- if .NeedsClientImport }}
 
@@ -13,18 +11,18 @@ import (
 )
 
 // {{.Builder}} returns the cobra command for rtm.{{.ServicePath}}.*.
-func {{.Builder}}(provider ClientProvider) *cobra.Command {
+func {{.Builder}}(provider ClientProvider, format Formatter) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   {{ printf "%q" .CLIName }},
 		Short: {{ printf "%q" .Short }},
 	}
 {{- range .Methods }}
-	cmd.AddCommand({{ .Builder }}(provider))
+	cmd.AddCommand({{ .Builder }}(provider, format))
 {{- end }}
 	return cmd
 }
 {{ range .Methods }}
-func {{ .Builder }}(provider ClientProvider) *cobra.Command {
+func {{ .Builder }}(provider ClientProvider, format Formatter) *cobra.Command {
 {{- if or .Required .Optional }}
 	var (
 {{- range .Required }}
@@ -58,8 +56,7 @@ func {{ .Builder }}(provider ClientProvider) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintln(cmd.OutOrStdout(), string(body))
-			return err
+			return format(cmd.OutOrStdout(), body)
 		},
 	}
 {{- range .Required }}

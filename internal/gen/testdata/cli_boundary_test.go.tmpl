@@ -2,6 +2,8 @@ package host_test
 
 import (
 	"bufio"
+	"encoding/json"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -15,7 +17,11 @@ import (
 
 func TestCommandTreeReachesEveryMethod(t *testing.T) {
 	root := &cobra.Command{Use: "rtm"}
-	commands.Register(root, func() *rtm.Client { return nil })
+	commands.Register(
+		root,
+		func() *rtm.Client { return nil },
+		func(_ io.Writer, _ json.RawMessage) error { return nil },
+	)
 
 	expected := readExpectedPaths(t)
 	got := leafPaths(root)
