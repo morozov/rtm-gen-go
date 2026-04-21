@@ -93,6 +93,19 @@ func (rm rawMethod) toMethod() (Method, error) {
 			Description: ra.Description,
 		})
 	}
+	// RTM's reflection metadata occasionally disagrees with the
+	// argument list: rtm.auth.checkToken, for example, declares
+	// needslogin=0 yet lists auth_token as a required argument.
+	// Trust the argument list — if auth_token / timeline is a
+	// declared argument, the method structurally needs it.
+	for _, a := range args {
+		switch a.Name {
+		case "auth_token":
+			login = true
+		case "timeline":
+			timeline = true
+		}
+	}
 	errs := make([]MethodError, 0, len(rm.Errors.Error))
 	for _, re := range rm.Errors.Error {
 		errs = append(errs, MethodError(re))

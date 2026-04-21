@@ -80,5 +80,25 @@
         {"code": "1", "message": "Bad request", "$t": "Synthetic error."}
       ]
     }
+  },
+  "rtm.fixture.lyingMetadata": {
+    "name": "rtm.fixture.lyingMetadata",
+    "needslogin": "0",
+    "needssigning": "0",
+    "needstimeline": "0",
+    "requiredperms": "0",
+    "description": "Synthetic: mirrors RTM's rtm.auth.checkToken — needslogin=0 in metadata but auth_token declared as a required argument. The loader MUST treat this as needs-login.",
+    "response": "<rsp stat=\"ok\"/>",
+    "arguments": {
+      "argument": [
+        {"name": "api_key", "optional": "0", "$t": "API key."},
+        {"name": "auth_token", "optional": "0", "$t": "Auth token."}
+      ]
+    },
+    "errors": {
+      "error": [
+        {"code": "1", "message": "Bad request", "$t": "Synthetic error."}
+      ]
+    }
   }
 }

@@ -18,7 +18,7 @@ func TestLoadFixture(t *testing.T) {
 
 	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
-	require.Len(t, spec, 4, "fixture should list all synthetic methods")
+	require.Len(t, spec, 5, "fixture should list all synthetic methods")
 
 	t.Run("every entry has a matching name", func(t *testing.T) {
 		t.Parallel()
@@ -48,6 +48,14 @@ func TestLoadFixture(t *testing.T) {
 		assert.False(t, m.Arguments[3].Optional)
 		assert.Equal(t, "note_text", m.Arguments[4].Name)
 		assert.True(t, m.Arguments[4].Optional)
+	})
+
+	t.Run("auth_token in arguments forces NeedsLogin even when metadata says otherwise", func(t *testing.T) {
+		t.Parallel()
+		m, ok := spec["rtm.fixture.lyingMetadata"]
+		require.True(t, ok)
+		assert.True(t, m.NeedsLogin, "auth_token as a declared argument must force NeedsLogin=true")
+		assert.False(t, m.NeedsSigning, "NeedsSigning stays as metadata reports")
 	})
 }
 
