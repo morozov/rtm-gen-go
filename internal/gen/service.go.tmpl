@@ -26,6 +26,10 @@ type {{ .ParamsType }} struct {
 {{- end }}
 
 // {{ .GoName }} calls {{ .RTMName }}.
+{{- if .Description }}
+//
+// {{ .Description }}
+{{- end }}
 func (s *{{ $.TypeName }}) {{ .GoName }}(ctx context.Context{{ if .ParamsType }}, p {{ .ParamsType }}{{ end }}) ([]byte, error) {
 	vals := url.Values{}
 {{- range .Required }}

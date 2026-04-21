@@ -8,6 +8,7 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"text/template"
@@ -120,12 +121,32 @@ type serviceData struct {
 type methodData struct {
 	RTMName       string
 	GoName        string
+	Description   string
 	ParamsType    string
 	Required      []argData
 	Optional      []argData
 	NeedsLogin    bool
 	NeedsTimeline bool
 	NeedsSigning  bool
+}
+
+// descHTMLTag matches simple HTML tags that RTM sprinkles into
+// reflection descriptions (e.g. "<b>This method call must be
+// signed.</b>"). Tags are stripped — the surrounding prose is
+// kept.
+var descHTMLTag = regexp.MustCompile(`<[^>]+>`)
+
+// descWhitespace collapses any run of whitespace (including
+// embedded newlines) to a single space. RTM descriptions are
+// generally one-liners, but a few have stray line breaks.
+var descWhitespace = regexp.MustCompile(`\s+`)
+
+// normalizeDescription returns a single-line, whitespace-
+// collapsed, HTML-stripped form of a reflection description,
+// safe to embed in a Go doc comment or a cobra Short field.
+func normalizeDescription(s string) string {
+	s = descHTMLTag.ReplaceAllString(s, "")
+	return strings.TrimSpace(descWhitespace.ReplaceAllString(s, " "))
 }
 
 type argData struct {
@@ -222,6 +243,7 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	return methodData{
 		RTMName:       m.Name,
 		GoName:        goName,
+		Description:   normalizeDescription(m.Description),
 		ParamsType:    params,
 		Required:      required,
 		Optional:      optional,

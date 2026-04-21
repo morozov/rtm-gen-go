@@ -110,6 +110,7 @@ type cliServiceData struct {
 	ClientModulePath   string
 	ServicePath        string
 	CLIName            string
+	Short              string
 	Builder            string
 	FieldName          string
 	Methods            []cliMethodData
@@ -119,6 +120,7 @@ type cliServiceData struct {
 type cliMethodData struct {
 	CLIName    string
 	GoName     string
+	Short      string
 	ParamsType string
 	Builder    string
 	Required   []cliArg
@@ -174,6 +176,7 @@ func buildCLIServiceData(cfg CLIConfig, sg serviceGroup) (cliServiceData, error)
 		ClientModulePath:   cfg.ClientModulePath,
 		ServicePath:        sg.servicePath,
 		CLIName:            serviceLeaf(sg.servicePath),
+		Short:              fmt.Sprintf("rtm.%s.* methods", sg.servicePath),
 		Builder:            builder,
 		FieldName:          sg.fieldName,
 	}
@@ -228,6 +231,7 @@ func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error
 	return cliMethodData{
 		CLIName:    cliName,
 		GoName:     goName,
+		Short:      normalizeDescription(m.Description),
 		ParamsType: params,
 		Builder:    builder,
 		Required:   required,

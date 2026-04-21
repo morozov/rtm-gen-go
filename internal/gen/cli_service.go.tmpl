@@ -15,7 +15,8 @@ import (
 // {{.Builder}} returns the cobra command for rtm.{{.ServicePath}}.*.
 func {{.Builder}}(provider ClientProvider) *cobra.Command {
 	cmd := &cobra.Command{
-		Use: {{ printf "%q" .CLIName }},
+		Use:   {{ printf "%q" .CLIName }},
+		Short: {{ printf "%q" .Short }},
 	}
 {{- range .Methods }}
 	cmd.AddCommand({{ .Builder }}(provider))
@@ -35,7 +36,8 @@ func {{ .Builder }}(provider ClientProvider) *cobra.Command {
 	)
 {{- end }}
 	cmd := &cobra.Command{
-		Use: {{ printf "%q" .CLIName }},
+		Use:   {{ printf "%q" .CLIName }},
+		Short: {{ printf "%q" .Short }},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 {{- if .ParamsType }}
 			params := {{ $.ClientPackageAlias }}.{{ .ParamsType }}{
