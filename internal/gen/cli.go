@@ -128,9 +128,10 @@ type cliMethodData struct {
 }
 
 type cliArg struct {
-	FlagName string
-	VarName  string
-	GoField  string
+	FlagName    string
+	VarName     string
+	GoField     string
+	Description string
 }
 
 func buildCLIRegisterData(cfg CLIConfig, groups []serviceGroup) cliRegisterData {
@@ -213,9 +214,10 @@ func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error
 			continue
 		}
 		ca := cliArg{
-			FlagName: strings.ReplaceAll(a.Name, "_", "-"),
-			VarName:  naming.GoLocal(a.Name),
-			GoField:  naming.GoField(a.Name),
+			FlagName:    strings.ReplaceAll(a.Name, "_", "-"),
+			VarName:     naming.GoLocal(a.Name),
+			GoField:     naming.GoField(a.Name),
+			Description: normalizeDescription(a.Description),
 		}
 		if a.Optional {
 			optional = append(optional, ca)

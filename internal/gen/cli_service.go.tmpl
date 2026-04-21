@@ -63,11 +63,11 @@ func {{ .Builder }}(provider ClientProvider) *cobra.Command {
 		},
 	}
 {{- range .Required }}
-	cmd.Flags().StringVar(&{{ .VarName }}, {{ printf "%q" .FlagName }}, "", "")
+	cmd.Flags().StringVar(&{{ .VarName }}, {{ printf "%q" .FlagName }}, "", {{ printf "%q" .Description }})
 	_ = cmd.MarkFlagRequired({{ printf "%q" .FlagName }})
 {{- end }}
 {{- range .Optional }}
-	cmd.Flags().StringVar(&{{ .VarName }}, {{ printf "%q" .FlagName }}, "", "")
+	cmd.Flags().StringVar(&{{ .VarName }}, {{ printf "%q" .FlagName }}, "", {{ printf "%q" .Description }})
 {{- end }}
 	return cmd
 }

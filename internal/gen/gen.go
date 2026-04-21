@@ -150,8 +150,9 @@ func normalizeDescription(s string) string {
 }
 
 type argData struct {
-	Name   string
-	GoName string
+	Name        string
+	GoName      string
+	Description string
 }
 
 type serviceGroup struct {
@@ -229,7 +230,11 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 		if _, skip := autoInjected[a.Name]; skip {
 			continue
 		}
-		ad := argData{Name: a.Name, GoName: naming.GoField(a.Name)}
+		ad := argData{
+			Name:        a.Name,
+			GoName:      naming.GoField(a.Name),
+			Description: normalizeDescription(a.Description),
+		}
 		if a.Optional {
 			optional = append(optional, ad)
 		} else {

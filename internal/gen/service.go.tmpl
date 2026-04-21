@@ -17,10 +17,12 @@ type {{ .TypeName }} struct {
 // {{ .ParamsType }} collects the arguments for {{ .RTMName }}.
 type {{ .ParamsType }} struct {
 {{- range .Required }}
-	{{ .GoName }} string
+{{ if .Description }}	// {{ .Description }}
+{{ end }}	{{ .GoName }} string
 {{- end }}
 {{- range .Optional }}
-	{{ .GoName }} *string
+{{ if .Description }}	// {{ .Description }}
+{{ end }}	{{ .GoName }} *string
 {{- end }}
 }
 {{- end }}
