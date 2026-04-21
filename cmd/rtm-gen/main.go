@@ -1,7 +1,7 @@
-// Command rtm-gen reads an RTM reflection dump and emits the Go
-// modules described by this project's specs. It has one subcommand
-// per target module: `client` emits rtm-client-go, `cli` emits
-// rtm-cli-go.
+// Command rtm-gen reads an RTM reflection dump and emits Go
+// packages for consumption by a hand-written CLI module.
+// Subcommands: `client` emits the RTM API client package, `cli`
+// emits the cobra commands package.
 package main
 
 import (
@@ -39,8 +39,8 @@ func run(args []string) error {
 const usageText = `usage: rtm-gen <subcommand> [flags]
 
 subcommands:
-  client    generate the rtm-client-go module
-  cli       generate the rtm-cli-go module
+  client    generate the RTM API client package
+  cli       generate the cobra commands package
 `
 
 func usage(w io.Writer) {

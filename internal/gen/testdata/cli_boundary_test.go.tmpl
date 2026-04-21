@@ -1,4 +1,4 @@
-package rtmcli_test
+package host_test
 
 import (
 	"bufio"
@@ -9,12 +9,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"test.local/rtmcli"
+	"test.local/host/internal/commands"
+	"test.local/host/internal/rtm"
 )
 
 func TestCommandTreeReachesEveryMethod(t *testing.T) {
+	root := &cobra.Command{Use: "rtm"}
+	commands.Register(root, func() *rtm.Client { return nil })
+
 	expected := readExpectedPaths(t)
-	got := leafPaths(rtmcli.NewRootCommand())
+	got := leafPaths(root)
 
 	sort.Strings(expected)
 	sort.Strings(got)

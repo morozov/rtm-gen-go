@@ -13,17 +13,17 @@ import (
 )
 
 // {{.Builder}} returns the cobra command for rtm.{{.ServicePath}}.*.
-func {{.Builder}}(state *runtimeState) *cobra.Command {
+func {{.Builder}}(provider ClientProvider) *cobra.Command {
 	cmd := &cobra.Command{
 		Use: {{ printf "%q" .CLIName }},
 	}
 {{- range .Methods }}
-	cmd.AddCommand({{ .Builder }}(state))
+	cmd.AddCommand({{ .Builder }}(provider))
 {{- end }}
 	return cmd
 }
 {{ range .Methods }}
-func {{ .Builder }}(state *runtimeState) *cobra.Command {
+func {{ .Builder }}(provider ClientProvider) *cobra.Command {
 {{- if or .Required .Optional }}
 	var (
 {{- range .Required }}
@@ -49,9 +49,9 @@ func {{ .Builder }}(state *runtimeState) *cobra.Command {
 				params.{{ .GoField }} = &v
 			}
 {{- end }}
-			body, err := state.client.{{ $.FieldName }}.{{ .GoName }}(cmd.Context(), params)
+			body, err := provider().{{ $.FieldName }}.{{ .GoName }}(cmd.Context(), params)
 {{- else }}
-			body, err := state.client.{{ $.FieldName }}.{{ .GoName }}(cmd.Context())
+			body, err := provider().{{ $.FieldName }}.{{ .GoName }}(cmd.Context())
 {{- end }}
 			if err != nil {
 				return err

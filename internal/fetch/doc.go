@@ -1,5 +1,5 @@
-// Package fetch retrieves the RTM reflection spec live via the
-// generated client. The live code path requires the `livefetch`
-// build tag; without it, Fetch is a stub that returns
-// ErrLiveFetchDisabled.
+// Package fetch retrieves the RTM reflection spec via live HTTP
+// calls. It issues the two reflection methods directly through
+// stdlib net/http with inline MD5 signing; the package has no
+// dependency on any generated artifact.
 package fetch

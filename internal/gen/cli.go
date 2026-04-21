@@ -15,38 +15,26 @@ import (
 // CLIConfig describes a CLI-generation target.
 type CLIConfig struct {
 	OutDir            string
-	ModulePath        string
 	PackageName       string
-	GoVersion         string
 	ClientModulePath  string
 	ClientPackageName string
-	ClientVersion     string
-	CobraVersion      string
 }
 
-//go:embed cli_gomod.tmpl
-var cliGomodTmplSrc string
-
-//go:embed cli_main.go.tmpl
-var cliMainTmplSrc string
-
-//go:embed cli_root.go.tmpl
-var cliRootTmplSrc string
+//go:embed cli_register.go.tmpl
+var cliRegisterTmplSrc string
 
 //go:embed cli_service.go.tmpl
 var cliServiceTmplSrc string
 
 var (
-	cliGomodTmpl   = template.Must(template.New("cli_gomod").Parse(cliGomodTmplSrc))
-	cliMainTmpl    = template.Must(template.New("cli_main").Parse(cliMainTmplSrc))
-	cliRootTmpl    = template.Must(template.New("cli_root").Parse(cliRootTmplSrc))
-	cliServiceTmpl = template.Must(template.New("cli_service").Parse(cliServiceTmplSrc))
+	cliRegisterTmpl = template.Must(template.New("cli_register").Parse(cliRegisterTmplSrc))
+	cliServiceTmpl  = template.Must(template.New("cli_service").Parse(cliServiceTmplSrc))
 )
 
-// GenerateCLI emits a self-contained Go cobra-based CLI module into
-// cfg.OutDir from the given spec. It creates cfg.OutDir and the
-// cmd/rtm binary subdirectory if missing, overwrites generated
-// files, and returns the list of files written.
+// GenerateCLI emits the cobra commands package into cfg.OutDir from
+// the given spec. It creates cfg.OutDir if missing, overwrites
+// generated files, and returns the list of files written. It does
+// not emit go.mod, main.go, or any file outside cfg.OutDir.
 func GenerateCLI(spec apispec.Spec, cfg CLIConfig) ([]string, error) {
 	if err := validateCLIConfig(cfg); err != nil {
 		return nil, err
@@ -55,35 +43,18 @@ func GenerateCLI(spec apispec.Spec, cfg CLIConfig) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmdDir := filepath.Join(cfg.OutDir, "cmd", "rtm")
-	if err := os.MkdirAll(cmdDir, dirPerm); err != nil {
-		return nil, fmt.Errorf("mkdir %s: %w", cmdDir, err)
+	if err := os.MkdirAll(cfg.OutDir, dirPerm); err != nil {
+		return nil, fmt.Errorf("mkdir %s: %w", cfg.OutDir, err)
 	}
 
-	written := make([]string, 0, len(groups)+3)
+	written := make([]string, 0, len(groups)+1)
 
-	gomodPath := filepath.Join(cfg.OutDir, "go.mod")
-	if err := writeRaw(gomodPath, cliGomodTmpl, cfg); err != nil {
+	registerPath := filepath.Join(cfg.OutDir, "register.go")
+	registerData := buildCLIRegisterData(cfg, groups)
+	if err := renderGoFile(registerPath, cliRegisterTmpl, registerData); err != nil {
 		return nil, err
 	}
-	written = append(written, gomodPath)
-
-	mainPath := filepath.Join(cmdDir, "main.go")
-	mainData := struct {
-		CLIModulePath string
-		PackageAlias  string
-	}{CLIModulePath: cfg.ModulePath, PackageAlias: cfg.PackageName}
-	if err := renderGoFile(mainPath, cliMainTmpl, mainData); err != nil {
-		return nil, err
-	}
-	written = append(written, mainPath)
-
-	rootPath := filepath.Join(cfg.OutDir, "root.go")
-	rootData := buildCLIRootData(cfg, groups)
-	if err := renderGoFile(rootPath, cliRootTmpl, rootData); err != nil {
-		return nil, err
-	}
-	written = append(written, rootPath)
+	written = append(written, registerPath)
 
 	for _, sg := range groups {
 		data, err := buildCLIServiceData(cfg, sg)
@@ -104,25 +75,17 @@ func validateCLIConfig(cfg CLIConfig) error {
 	switch {
 	case cfg.OutDir == "":
 		return fmt.Errorf("OutDir is empty: %w", ErrInvalidConfig)
-	case cfg.ModulePath == "":
-		return fmt.Errorf("ModulePath is empty: %w", ErrInvalidConfig)
 	case cfg.PackageName == "":
 		return fmt.Errorf("PackageName is empty: %w", ErrInvalidConfig)
-	case cfg.GoVersion == "":
-		return fmt.Errorf("GoVersion is empty: %w", ErrInvalidConfig)
 	case cfg.ClientModulePath == "":
 		return fmt.Errorf("ClientModulePath is empty: %w", ErrInvalidConfig)
 	case cfg.ClientPackageName == "":
 		return fmt.Errorf("ClientPackageName is empty: %w", ErrInvalidConfig)
-	case cfg.ClientVersion == "":
-		return fmt.Errorf("ClientVersion is empty: %w", ErrInvalidConfig)
-	case cfg.CobraVersion == "":
-		return fmt.Errorf("CobraVersion is empty: %w", ErrInvalidConfig)
 	}
 	return nil
 }
 
-type cliRootData struct {
+type cliRegisterData struct {
 	PackageName        string
 	ClientPackageAlias string
 	ClientModulePath   string
@@ -168,8 +131,8 @@ type cliArg struct {
 	GoField  string
 }
 
-func buildCLIRootData(cfg CLIConfig, groups []serviceGroup) cliRootData {
-	data := cliRootData{
+func buildCLIRegisterData(cfg CLIConfig, groups []serviceGroup) cliRegisterData {
+	data := cliRegisterData{
 		PackageName:        cfg.PackageName,
 		ClientPackageAlias: cfg.ClientPackageName,
 		ClientModulePath:   cfg.ClientModulePath,

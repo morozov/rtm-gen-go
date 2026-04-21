@@ -12,14 +12,10 @@ func runCLI(args []string) error {
 	specPath := fs.String("spec", "", "path to a local RTM reflection dump (mutually exclusive with -key/-secret)")
 	apiKey := fs.String("key", "", "RTM API key for live spec fetch")
 	apiSecret := fs.String("secret", "", "RTM API secret for live spec fetch")
-	outDir := fs.String("out", "generated/rtm-cli-go", "output directory for the generated module")
-	modulePath := fs.String("module", "github.com/morozov/rtm-cli-go", "Go module path to declare in go.mod")
-	pkgName := fs.String("package", "rtmcli", "Go package name for the generated library")
-	goVersion := fs.String("go", "1.26", "Go version declared in go.mod")
-	clientModule := fs.String("client-module", "github.com/morozov/rtm-client-go", "Go module path of the generated client")
+	outDir := fs.String("out", "generated/commands", "output directory for the generated commands package")
+	pkgName := fs.String("package", "commands", "Go package name for the generated commands")
+	clientModule := fs.String("client-module", "github.com/morozov/rtm-cli-go/internal/rtm", "import path of the generated client package")
 	clientPkg := fs.String("client-package", "rtm", "Go package name of the generated client")
-	clientVersion := fs.String("client-version", "v0.0.1", "version of the client module to require")
-	cobraVersion := fs.String("cobra-version", "1.8.1", "version of github.com/spf13/cobra to require")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -30,13 +26,9 @@ func runCLI(args []string) error {
 	}
 	files, err := gen.GenerateCLI(spec, gen.CLIConfig{
 		OutDir:            *outDir,
-		ModulePath:        *modulePath,
 		PackageName:       *pkgName,
-		GoVersion:         *goVersion,
 		ClientModulePath:  *clientModule,
 		ClientPackageName: *clientPkg,
-		ClientVersion:     *clientVersion,
-		CobraVersion:      *cobraVersion,
 	})
 	if err != nil {
 		return err

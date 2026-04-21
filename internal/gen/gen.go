@@ -25,14 +25,10 @@ const (
 // generator configuration.
 var ErrInvalidConfig = errors.New("invalid generator config")
 
-// Config describes a single generation target: where to write, what
-// module path the emitted code should declare, and what Go package
-// name to use.
+// Config describes a single client generation target.
 type Config struct {
 	OutDir      string
-	ModulePath  string
 	PackageName string
-	GoVersion   string
 }
 
 // autoInjected lists argument names the generator hides from user-
@@ -50,18 +46,15 @@ var coreTmplSrc string
 //go:embed service.go.tmpl
 var serviceTmplSrc string
 
-//go:embed gomod.tmpl
-var gomodTmplSrc string
-
 var (
 	coreTmpl    = template.Must(template.New("core").Parse(coreTmplSrc))
 	serviceTmpl = template.Must(template.New("service").Parse(serviceTmplSrc))
-	gomodTmpl   = template.Must(template.New("gomod").Parse(gomodTmplSrc))
 )
 
-// GenerateClient emits a self-contained Go client module into
-// cfg.OutDir from the given spec. It creates cfg.OutDir if missing,
-// overwrites generated files, and returns the list of files written.
+// GenerateClient emits the RTM client package into cfg.OutDir from
+// the given spec. It creates cfg.OutDir if missing, overwrites
+// generated files, and returns the list of files written. It does
+// not emit go.mod or any file outside cfg.OutDir.
 func GenerateClient(spec apispec.Spec, cfg Config) ([]string, error) {
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
@@ -73,13 +66,7 @@ func GenerateClient(spec apispec.Spec, cfg Config) ([]string, error) {
 	if err := os.MkdirAll(cfg.OutDir, dirPerm); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", cfg.OutDir, err)
 	}
-	written := make([]string, 0, len(groups)+2)
-
-	gomodPath := filepath.Join(cfg.OutDir, "go.mod")
-	if err := writeRaw(gomodPath, gomodTmpl, cfg); err != nil {
-		return nil, err
-	}
-	written = append(written, gomodPath)
+	written := make([]string, 0, len(groups)+1)
 
 	corePath := filepath.Join(cfg.OutDir, "client.go")
 	coreData := coreData{PackageName: cfg.PackageName, Services: serviceRefs(groups)}
@@ -107,12 +94,8 @@ func validateConfig(cfg Config) error {
 	switch {
 	case cfg.OutDir == "":
 		return fmt.Errorf("OutDir is empty: %w", ErrInvalidConfig)
-	case cfg.ModulePath == "":
-		return fmt.Errorf("ModulePath is empty: %w", ErrInvalidConfig)
 	case cfg.PackageName == "":
 		return fmt.Errorf("PackageName is empty: %w", ErrInvalidConfig)
-	case cfg.GoVersion == "":
-		return fmt.Errorf("GoVersion is empty: %w", ErrInvalidConfig)
 	}
 	return nil
 }
@@ -258,17 +241,6 @@ func renderGoFile(path string, tmpl *template.Template, data any) error {
 		return fmt.Errorf("format %s: %w\n--- source ---\n%s", path, err, raw.String())
 	}
 	if err := os.WriteFile(path, formatted, filePerm); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
-}
-
-func writeRaw(path string, tmpl *template.Template, data any) error {
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return fmt.Errorf("execute template for %s: %w", path, err)
-	}
-	if err := os.WriteFile(path, buf.Bytes(), filePerm); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

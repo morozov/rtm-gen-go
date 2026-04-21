@@ -1,29 +1,37 @@
-//go:build livefetch
-
 package fetch
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-
-	"github.com/morozov/rtm-client-go"
+	"net/url"
+	"sort"
+	"strings"
 
 	"github.com/morozov/rtm-gen-go/internal/apispec"
 )
 
-// Fetch retrieves the current RTM reflection spec using the generated
-// client and returns it as an apispec.Spec. The baseURL argument is
-// empty for production use; tests pass an httptest server URL.
-func Fetch(ctx context.Context, apiKey, apiSecret, baseURL string) (apispec.Spec, error) {
-	c := rtm.NewClient(apiKey, apiSecret, "")
-	if baseURL != "" {
-		c.BaseURL = baseURL
-	}
-	c.HTTP = &http.Client{}
+const defaultBaseURL = "https://api.rememberthemilk.com/services/rest/"
 
-	listBody, err := c.Reflection.GetMethods(ctx)
+// Fetch retrieves the current RTM reflection spec via live HTTP calls
+// and returns it as an apispec.Spec. baseURL is empty for production
+// use; tests pass an httptest server URL.
+func Fetch(ctx context.Context, apiKey, apiSecret, baseURL string) (apispec.Spec, error) {
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+	f := &fetcher{
+		apiKey:    apiKey,
+		apiSecret: apiSecret,
+		baseURL:   baseURL,
+		http:      http.DefaultClient,
+	}
+
+	listBody, err := f.call(ctx, "rtm.reflection.getMethods", nil)
 	if err != nil {
 		return nil, fmt.Errorf("getMethods: %w", err)
 	}
@@ -34,9 +42,7 @@ func Fetch(ctx context.Context, apiKey, apiSecret, baseURL string) (apispec.Spec
 
 	assembled := make(map[string]json.RawMessage, len(names))
 	for _, name := range names {
-		body, err := c.Reflection.GetMethodInfo(ctx, rtm.ReflectionGetMethodInfoParams{
-			MethodName: name,
-		})
+		body, err := f.call(ctx, "rtm.reflection.getMethodInfo", url.Values{"method_name": []string{name}})
 		if err != nil {
 			return nil, fmt.Errorf("getMethodInfo %s: %w", name, err)
 		}
@@ -52,6 +58,60 @@ func Fetch(ctx context.Context, apiKey, apiSecret, baseURL string) (apispec.Spec
 		return nil, fmt.Errorf("marshal spec: %w", err)
 	}
 	return apispec.Parse(raw)
+}
+
+type fetcher struct {
+	apiKey    string
+	apiSecret string
+	baseURL   string
+	http      *http.Client
+}
+
+func (f *fetcher) call(ctx context.Context, method string, params url.Values) ([]byte, error) {
+	if params == nil {
+		params = url.Values{}
+	}
+	params.Set("method", method)
+	params.Set("format", "json")
+	params.Set("api_key", f.apiKey)
+	params.Set("api_sig", f.sign(params))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.baseURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	resp, err := f.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
+	}
+	return body, nil
+}
+
+func (f *fetcher) sign(params url.Values) string {
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		if k == "api_sig" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(f.apiSecret)
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteString(params.Get(k))
+	}
+	sum := md5.Sum([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
 }
 
 type rspStat struct {

@@ -1,5 +1,3 @@
-//go:build livefetch
-
 package fetch_test
 
 import (

@@ -15,10 +15,8 @@ func runClient(args []string) error {
 	specPath := fs.String("spec", "", "path to a local RTM reflection dump (mutually exclusive with -key/-secret)")
 	apiKey := fs.String("key", "", "RTM API key for live spec fetch (requires -secret; mutually exclusive with -spec)")
 	apiSecret := fs.String("secret", "", "RTM API secret for live spec fetch")
-	outDir := fs.String("out", "generated/rtm-client-go", "output directory for the generated module")
-	modulePath := fs.String("module", "github.com/morozov/rtm-client-go", "Go module path to declare in go.mod")
+	outDir := fs.String("out", "generated/rtm", "output directory for the generated client package")
 	pkgName := fs.String("package", "rtm", "Go package name for the generated code")
-	goVersion := fs.String("go", "1.26", "Go version declared in go.mod")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -29,9 +27,7 @@ func runClient(args []string) error {
 	}
 	files, err := gen.GenerateClient(spec, gen.Config{
 		OutDir:      *outDir,
-		ModulePath:  *modulePath,
 		PackageName: *pkgName,
-		GoVersion:   *goVersion,
 	})
 	if err != nil {
 		return err

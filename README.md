@@ -1,128 +1,95 @@
 # rtm-gen-go
 
-Code generator that produces a Go client library and a
-[cobra](https://github.com/spf13/cobra) CLI for the
-[Remember The Milk API](https://www.rememberthemilk.com/services/api/)
-from a single spec snapshot (`api.json`).
+Code generator that produces two Go packages for talking to the
+[Remember The Milk API](https://www.rememberthemilk.com/services/api/):
+a stdlib-only **client** and a [cobra](https://github.com/spf13/cobra)
+**commands** tree.
 
-The output is two separate Go modules, published independently:
+The generator's output is consumed by a separate hand-written CLI
+repository (`rtm-cli-go`) that commits the generated code under
+`internal/rtm/` and `internal/commands/` and owns the rest —
+`main.go`, root cobra command, persistent flags, credential
+sourcing, output formatting.
 
-- **`github.com/morozov/rtm-client-go`** — API client library
-  (package `rtm`, standard library only).
-- **`github.com/morozov/rtm-cli-go`** — cobra-based CLI; depends
-  on `rtm-client-go`.
-
-This repository holds the generator itself plus the committed
-`api.json` it reads.
+This repository holds the generator itself and nothing generated.
 
 ## Status
 
-The `client` and `cli` generator subcommands are implemented and
-covered by integration tests that build freshly-generated modules
-in temp directories. The output modules have not yet been
-published, so today the practical workflow is to generate locally
-and stitch with a `replace` directive; see below.
+The `client` and `cli` subcommands are implemented and covered by
+integration tests that generate both packages into a temp module,
+wire them with a hand-rolled `go.mod` + `main.go`, and run the
+boundary suite. Live spec fetch runs directly through stdlib
+`net/http`; no sibling checkout or build tag required.
 
-Live spec fetch (generator → RTM directly) is behind the
-`livefetch` build tag and requires a local sibling checkout of
-`rtm-client-go`. The default build, default test suite, and CI
-path do not require it.
+See [`specs/`](./specs) for the authoritative design. Start with
+[`specs/INDEX.md`](./specs/INDEX.md);
+[spec 001](./specs/001-codegen-architecture.md) is the canonical
+architecture reference.
 
 ## Using the generator
 
-Install from source:
+Install:
 
 ```sh
 go install github.com/morozov/rtm-gen-go/cmd/rtm-gen@latest
 ```
 
-Or run directly against a clone:
+Or run directly from a clone:
 
 ```sh
 go run ./cmd/rtm-gen <subcommand> [flags]
 ```
 
-Both subcommands default to writing into `generated/` (gitignored
-in this repo), and default to the published module paths.
-
-### Generate the client module
+### Generate the client package
 
 From a local spec file:
 
 ```sh
 rtm-gen client \
   -spec ./path/to/api.json \
-  -out generated/rtm-client-go \
-  -module github.com/morozov/rtm-client-go \
+  -out path/to/rtm-cli-go/internal/rtm \
   -package rtm
 ```
 
-From a live RTM fetch (requires the `livefetch` build tag and a
-sibling `../rtm-client-go/` checkout; see
-[Live-fetch setup](#live-fetch-setup) below):
+From a live RTM fetch:
 
 ```sh
-go run -tags=livefetch ./cmd/rtm-gen client \
+rtm-gen client \
   -key $RTM_API_KEY -secret $RTM_API_SECRET \
-  -out generated/rtm-client-go
+  -out path/to/rtm-cli-go/internal/rtm
 ```
 
-Writes `go.mod`, a core `client.go`, and one file per RTM service.
+Emits `client.go` plus one file per RTM service. The generator
+does **not** emit a `go.mod` — the client package lives as a
+subpackage inside the host CLI module.
 
-### Generate the CLI module
+### Generate the commands package
 
 ```sh
 rtm-gen cli \
-  -out generated/rtm-cli-go \
-  -module github.com/morozov/rtm-cli-go \
-  -package rtmcli \
-  -client-module github.com/morozov/rtm-client-go \
+  -spec ./path/to/api.json \
+  -out path/to/rtm-cli-go/internal/commands \
+  -package commands \
+  -client-module github.com/morozov/rtm-cli-go/internal/rtm \
   -client-package rtm
 ```
 
-The CLI requires the client module. For local development (until
-`rtm-client-go` is published), point at your local client output:
+Emits `register.go` (the `Register(root, provider)` entry point)
+plus one file per RTM service.
+
+### From the consumer side
+
+`rtm-cli-go` pins the generator via `tool` directive in its
+`go.mod` and drives regeneration with `//go:generate` anchor
+files at `internal/rtm/gen.go` and `internal/commands/gen.go`:
 
 ```sh
-(cd generated/rtm-cli-go && \
-  go mod edit -replace=github.com/morozov/rtm-client-go=../rtm-client-go && \
-  go mod tidy)
+go generate ./...
 ```
-
-After that, `go build ./cmd/rtm` inside the CLI module produces
-the `rtm` binary.
-
-### Live-fetch setup
-
-The `livefetch` build tag enables the generator to pull the RTM
-spec straight from RTM at generation time, using the pinned
-`rtm-client-go` module. Because `rtm-client-go` is not yet
-published, the build is wired via a local `replace` pointing at
-`../rtm-client-go/`. To enable:
-
-```sh
-# From the parent directory of this repo:
-go run ./rtm-gen-go/cmd/rtm-gen client \
-  -spec ./rtm-gen-go/api.json \
-  -out ./rtm-client-go
-
-# Then, back in rtm-gen-go, live fetch is available:
-go run -tags=livefetch ./cmd/rtm-gen client \
-  -key $RTM_API_KEY -secret $RTM_API_SECRET \
-  -out generated/rtm-client-go
-```
-
-Without the sibling directory:
-- Default `go build`, `go test`, and `go tool golangci-lint` all
-  still work.
-- `go mod tidy` and `-tags=livefetch` builds fail because the
-  `replace` target is missing.
-
-Once `rtm-client-go` is published, the `replace` directive will
-be dropped in favour of a normal `require` on the tagged
-version, and the sibling requirement will go away.
 
 ## Using the generated client
+
+Inside the host module:
 
 ```go
 package main
@@ -131,7 +98,7 @@ import (
     "context"
     "fmt"
 
-    "github.com/morozov/rtm-client-go"
+    "github.com/morozov/rtm-cli-go/internal/rtm"
 )
 
 func main() {
@@ -146,7 +113,7 @@ func main() {
 ```
 
 Every RTM service is a field on `*rtm.Client`. Methods take a
-`context.Context`, and a typed `<Service><Method>Params` struct
+`context.Context` and a typed `<Service><Method>Params` struct
 when the method has user-facing arguments. Required fields are
 plain `string`; optional fields are `*string`.
 
@@ -156,26 +123,54 @@ automatically — the caller only supplies RTM-specific arguments.
 where the client was not configured with the required credentials
 for a particular call.
 
-The client returns the raw HTTP response body. Parsing the RTM
-response (XML by default, JSON with `?format=json`) is the
-caller's responsibility.
+Every request uses `format=json`; the raw HTTP response body is
+returned verbatim. Parsing the RTM envelope is the caller's
+responsibility.
 
-## Using the generated CLI
+## Using the generated commands
 
-Install:
+The host's `cmd/rtm/main.go` mounts the generated commands onto
+its own cobra root:
 
-```sh
-go install github.com/morozov/rtm-cli-go/cmd/rtm@latest
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/spf13/cobra"
+
+    "github.com/morozov/rtm-cli-go/internal/commands"
+    "github.com/morozov/rtm-cli-go/internal/rtm"
+)
+
+func main() {
+    var apiKey, apiSecret, authToken string
+    var client *rtm.Client
+
+    root := &cobra.Command{
+        Use:   "rtm",
+        Short: "Remember The Milk CLI",
+        PersistentPreRunE: func(*cobra.Command, []string) error {
+            client = rtm.NewClient(apiKey, apiSecret, authToken)
+            return nil
+        },
+    }
+    root.PersistentFlags().StringVar(&apiKey, "key", "", "RTM API key")
+    root.PersistentFlags().StringVar(&apiSecret, "secret", "", "RTM API secret")
+    root.PersistentFlags().StringVar(&authToken, "token", "", "RTM auth token")
+
+    commands.Register(root, func() *rtm.Client { return client })
+
+    if err := root.Execute(); err != nil {
+        fmt.Fprintln(os.Stderr, err)
+        os.Exit(1)
+    }
+}
 ```
 
-Or after a local generate, from inside `generated/rtm-cli-go/`:
-
-```sh
-go build ./cmd/rtm
-./rtm --help
-```
-
-Invoke:
+Once built:
 
 ```sh
 rtm --key $RTM_API_KEY --secret $RTM_API_SECRET --token $RTM_AUTH_TOKEN \
@@ -193,12 +188,5 @@ rtm tasks add --name "Ship it" --list-id 123
 rtm tasks notes add --list-id 1 --taskseries-id 2 --task-id 3 --note-title "..."
 ```
 
-`--key` and `--secret` are required for every invocation;
-`--token` is required for methods that need a logged-in user.
-
-## Specs
-
-Authoritative design lives under [`specs/`](./specs). Start with
-[`specs/INDEX.md`](./specs/INDEX.md);
-[spec 001](./specs/001-codegen-architecture.md) is the canonical
-architecture reference.
+The host owns flag parsing, so `--key`/`--secret`/`--token`
+behaviour is defined by the host's `main.go`, not the generator.
