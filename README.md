@@ -25,13 +25,31 @@ go run ./cmd/rtm-gen <subcommand> [flags]
 
 ### Generate the client package
 
+RTM publishes its API shape only through its own reflection
+endpoints (`rtm.reflection.getMethods` plus per-method
+`rtm.reflection.getMethodInfo`) — there is no separate schema
+file the generator can read offline. The generator therefore
+needs a copy of that reflection data at generation time, and
+accepts it in one of two forms. Both subcommands (`client` and
+`cli`) accept the same pair.
+
+- **Local file** (`--spec=./api.json`) — a JSON document
+  holding a prior capture of the reflection responses. Use it
+  for CI, scripted regeneration, and any build where
+  reproducibility and offline operation matter more than being
+  up-to-the-minute with RTM. rtm-cli-go's default build takes
+  this route.
+- **Live RTM fetch** (`--key=… --secret=…`) — `rtm-gen` calls
+  the reflection endpoints directly on every run. Use it for
+  first-time generation or to refresh a cached spec against
+  newly added RTM methods or fields.
+
 From a local spec file:
 
 ```sh
 rtm-gen client \
   --spec=./path/to/api.json \
-  --out=path/to/rtm-cli-go/internal/rtm \
-  --package=rtm
+  --out=path/to/rtm-cli-go/internal/rtm
 ```
 
 From a live RTM fetch:
@@ -51,14 +69,15 @@ subpackage inside the host CLI module.
 ```sh
 rtm-gen cli \
   --spec=./path/to/api.json \
-  --out=path/to/rtm-cli-go/internal/commands \
-  --package=commands \
-  --client-module=github.com/morozov/rtm-cli-go/internal/rtm \
-  --client-package=rtm
+  --out=path/to/rtm-cli-go/internal/commands
 ```
 
 Emits `register.go` (the `Register(root, provider, formatter)`
-entry point) plus one file per RTM service.
+entry point) plus one file per RTM service. The remaining flags
+(`--package`, `--client-module`, `--client-package`) default to
+values that suit `rtm-cli-go`; a different host module needs to
+override `--client-module` so the generated commands import from
+the right Go package path.
 
 ### From the consumer side
 
@@ -70,146 +89,26 @@ files at `internal/rtm/gen.go` and `internal/commands/gen.go`:
 go generate ./...
 ```
 
-## Using the generated client
+## Generated output contract
 
-Inside the host module:
+- The **client** package exposes typed `*<Service><Method>Params`
+  and `*<Service><Method>Response` structs — no
+  `json.RawMessage` on the happy path — plus enum aliases
+  (`Priority`, `Perms`, `Direction`) and an exported
+  `Sign(url.Values) string` for hosts that build their own
+  signed URLs. The client unwraps the RTM envelope; `APIError`
+  (wrapping `ErrRTMAPI`) carries the upstream code and message.
+- The **commands** package exposes one entry point,
+  `Register(root *cobra.Command, provider ClientProvider,
+  format Formatter)`. Typed flags validate locally; enum flags
+  register shell completion and carry an `rtm-gen.enum` pflag
+  annotation so a manifest-style subcommand can enumerate the
+  legal values without scraping help text.
 
-```go
-package main
+The host module owns everything else — persistent flags,
+credential sourcing, output format, config, and any bespoke
+commands that aren't RTM API bindings.
 
-import (
-    "context"
-    "fmt"
-
-    "github.com/morozov/rtm-cli-go/internal/rtm"
-)
-
-func main() {
-    c := rtm.NewClient("API_KEY", "API_SECRET", "AUTH_TOKEN")
-
-    resp, err := c.Lists.GetList(context.Background())
-    if err != nil {
-        panic(err)
-    }
-    for _, l := range resp.Lists.List {
-        fmt.Printf("%d %s archived=%t\n", l.ID, l.Name, l.Archived)
-    }
-}
-```
-
-Every RTM service is a field on `*rtm.Client`. Methods take a
-`context.Context` (and a typed `<Service><Method>Params` struct
-when the method has user-facing arguments) and return a typed
-`*<Service><Method>Response` — never `json.RawMessage`.
-
-- Scalar fields carry semantic Go types: integer IDs are `int64`
-  via the `rtmInt` wrapper, booleans are `bool` via `rtmBool`,
-  timestamps are `time.Time` via `rtmTime` (with `Valid` for
-  RTM's `""` → absent convention).
-- Enum fields use catalogue-backed string aliases (`Priority`,
-  `Perms`, `Direction`) with named constants (`Priority1`,
-  `PermsRead`, …). Unknown wire values round-trip through the
-  alias unchanged.
-- `Params` fields follow the same typing on the request side:
-  required args are typed scalars (`int64`, `bool`, enum
-  aliases, `[]string` for comma-lists), optional args are
-  pointers to the same.
-
-`api_key`, `auth_token`, `timeline`, and `api_sig` are injected
-automatically — the caller only supplies RTM-specific arguments.
-`ErrMissingAuthToken` and `ErrMissingTimeline` signal the cases
-where the client was not configured with the required credentials
-for a particular call; `APIError` (wrapping the sentinel
-`ErrRTMAPI`) carries RTM's own code and message. The client
-unwraps the RTM envelope before handing the response back — the
-caller never sees the `rsp`/`stat` layer.
-
-`Sign(url.Values) string` is exposed for host code that needs to
-build signed URLs outside of `Call` (e.g., the browser approval
-URL during an auth-login flow).
-
-## Using the generated commands
-
-The host's `cmd/rtm/main.go` mounts the generated commands onto
-its own cobra root. `Register` takes a `ClientProvider` (called
-lazily so persistent flags are populated before the client is
-built) and a `Formatter` (writes a typed response to `io.Writer`):
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "fmt"
-    "io"
-    "os"
-
-    "github.com/spf13/cobra"
-
-    "github.com/morozov/rtm-cli-go/internal/commands"
-    "github.com/morozov/rtm-cli-go/internal/rtm"
-)
-
-func main() {
-    var apiKey, apiSecret, authToken string
-    var client *rtm.Client
-
-    root := &cobra.Command{
-        Use:   "rtm",
-        Short: "Remember The Milk CLI",
-        PersistentPreRunE: func(*cobra.Command, []string) error {
-            client = rtm.NewClient(apiKey, apiSecret, authToken)
-            return nil
-        },
-    }
-    root.PersistentFlags().StringVar(&apiKey, "key", "", "RTM API key")
-    root.PersistentFlags().StringVar(&apiSecret, "secret", "", "RTM API secret")
-    root.PersistentFlags().StringVar(&authToken, "token", "", "RTM auth token (optional)")
-
-    commands.Register(
-        root,
-        func() *rtm.Client { return client },
-        func(w io.Writer, body any) error {
-            enc := json.NewEncoder(w)
-            enc.SetIndent("", "  ")
-            return enc.Encode(body)
-        },
-    )
-
-    if err := root.Execute(); err != nil {
-        fmt.Fprintln(os.Stderr, err)
-        os.Exit(1)
-    }
-}
-```
-
-Once built:
-
-```sh
-rtm --key=$RTM_API_KEY --secret=$RTM_API_SECRET --token=$RTM_AUTH_TOKEN \
-    <service> <method> [flags]
-```
-
-The CLI mirrors the RTM service hierarchy. Representative
-commands:
-
-```sh
-rtm reflection get-methods
-rtm auth check-token
-rtm lists get-list
-rtm tasks add --name="Ship it" --list-id=123
-rtm tasks set-priority --list-id=1 --taskseries-id=2 --task-id=3 --priority=2
-rtm tasks set-tags --list-id=1 --taskseries-id=2 --task-id=3 --tags=shipit,work
-rtm tasks notes add --list-id=1 --taskseries-id=2 --task-id=3 --note-title="..."
-```
-
-Typed flags mean local validation: `--list-id=foo` fails before
-any HTTP call; `--priority=banana` fails with
-"expected 1, 2, 3, N". Enum flags also register shell completion
-and carry an `rtm-gen.enum` pflag annotation so programmatic
-consumers can enumerate the legal values.
-
-The host owns flag parsing, so `--key`/`--secret`/`--token`
-behaviour — and any additional concerns like config files, env
-vars, output formats, or bespoke commands (e.g., an `auth login`
-flow) — live in the host module, not in the generator.
+For a worked example, see
+[rtm-cli-go](https://github.com/morozov/rtm-cli-go)'s
+`cmd/rtm/main.go` and `internal/rtm/`.
