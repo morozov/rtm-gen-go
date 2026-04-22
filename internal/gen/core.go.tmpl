@@ -107,7 +107,7 @@ func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimel
 		params.Set("timeline", c.Timeline)
 	}
 	if needsSigning {
-		params.Set("api_sig", c.sign(params))
+		params.Set("api_sig", c.Sign(params))
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"?"+params.Encode(), nil)
 	if err != nil {
@@ -273,7 +273,11 @@ func rtmFormatInt(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
 
-func (c *Client) sign(params url.Values) string {
+// Sign computes RTM's api_sig over params using the client's
+// APISecret. Exposed so host code that builds signed URLs (e.g.
+// the browser auth URL during login) doesn't have to duplicate
+// the algorithm.
+func (c *Client) Sign(params url.Values) string {
 	keys := make([]string, 0, len(params))
 	for k := range params {
 		if k == "api_sig" {
