@@ -33,13 +33,19 @@ type Config struct {
 	PackageName string
 }
 
-// autoInjected lists argument names the generator hides from user-
-// facing params structs because the client fills them in automatically
-// during Call.
-var autoInjected = map[string]struct{}{
+// hiddenArgs lists argument names the generator drops from both
+// the client params structs and the CLI flags. Two reasons an
+// argument lands here:
+//   - The client fills it in automatically during Call (api_key,
+//     auth_token, timeline).
+//   - Exposing it would break the client: callback wraps the
+//     response in a JSONP call, producing a body the JSON decoder
+//     cannot parse.
+var hiddenArgs = map[string]struct{}{
 	"api_key":    {},
 	"auth_token": {},
 	"timeline":   {},
+	"callback":   {},
 }
 
 //go:embed core.go.tmpl
@@ -421,7 +427,7 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	}
 	var required, optional []argData
 	for _, a := range m.Arguments {
-		if _, skip := autoInjected[a.Name]; skip {
+		if _, skip := hiddenArgs[a.Name]; skip {
 			continue
 		}
 		goType, _, wireFunc := argTypeInfo(argTypeFor(m.Name, a.Name))

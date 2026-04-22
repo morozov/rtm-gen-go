@@ -254,7 +254,7 @@ func buildCLIMethodData(cfg CLIConfig, sg serviceGroup, m apispec.Method) (cliMe
 
 	var required, optional []cliArg
 	for _, a := range m.Arguments {
-		if _, skip := autoInjected[a.Name]; skip {
+		if _, skip := hiddenArgs[a.Name]; skip {
 			continue
 		}
 		goType, flagReg, _ := argTypeInfo(argTypeFor(m.Name, a.Name))
