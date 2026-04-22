@@ -184,7 +184,7 @@ var typeTable = map[string]methodTypeInfo{
 	}},
 
 	// ---- lists -----------------------------------------------
-	"rtm.lists.add":     {Response: listResponseFields("list")},
+	"rtm.lists.add": {Response: listResponseFields("list")},
 	"rtm.lists.archive": {
 		Arguments: map[string]argType{"list_id": argTypeInt},
 		Response:  listResponseFields("list"),
@@ -283,8 +283,8 @@ var typeTable = map[string]methodTypeInfo{
 		Response:      taskResponseFields("list"),
 		ResponseEnums: taskResponseEnums("list"),
 	},
-	"rtm.tasks.complete":  {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
-	"rtm.tasks.delete":    {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
+	"rtm.tasks.complete": {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
+	"rtm.tasks.delete":   {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
 	"rtm.tasks.movePriority": {
 		Arguments:     taskIDArgs(),
 		ArgEnums:      map[string]string{"direction": "direction"},

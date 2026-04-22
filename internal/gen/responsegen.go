@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -199,11 +198,4 @@ func jsonTagSuffix(goType string) string {
 		return ",omitempty"
 	}
 	return ""
-}
-
-// typeDeclaration returns a full `type Name = <source>` or
-// `type Name <source>` declaration suitable for embedding in a
-// generated Go file.
-func typeDeclaration(name, source string) string {
-	return fmt.Sprintf("type %s %s", name, source)
 }

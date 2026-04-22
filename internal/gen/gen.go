@@ -414,16 +414,6 @@ func argEnumFor(method, argName string) string {
 	return info.ArgEnums[argName]
 }
 
-// responseEnumFor returns the enum catalogue key a response path
-// is bound to, or "" if the field isn't an enum.
-func responseEnumFor(method, path string) string {
-	info, ok := typeTable[method]
-	if !ok {
-		return ""
-	}
-	return info.ResponseEnums[path]
-}
-
 func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	goName, err := naming.GoMethod(m.Name)
 	if err != nil {
