@@ -115,6 +115,7 @@ type cliServiceData struct {
 	FieldName          string
 	Methods            []cliMethodData
 	NeedsClientImport  bool
+	NeedsFmtImport     bool
 }
 
 type cliMethodData struct {
@@ -129,13 +130,19 @@ type cliMethodData struct {
 }
 
 type cliArg struct {
-	FlagName     string
-	VarName      string
-	GoField      string
-	Description  string
-	GoType       string // "string" | "bool" | "int64"
-	FlagRegister string // "StringVar" | "BoolVar" | "Int64Var"
-	DefaultLit   string // `""` | `false` | `0`
+	FlagName        string
+	VarName         string
+	GoField         string
+	Description     string
+	LocalGoType     string // type of the cobra-bound local var ("string"/"bool"/"int64"/"[]string")
+	FlagRegister    string // "StringVar" | "BoolVar" | "Int64Var" | "StringSliceVar"
+	DefaultLit      string // `""` | `false` | `0` | `nil`
+	EnumType        string // non-empty → local var is cast to this alias when populating Params
+	EnumValues      []string
+	EnumValuesHuman string // comma-joined legal values for error messages, e.g. "1, 2, 3, N"
+	EnumValuesGo    string // Go source listing, e.g. `"1", "2", "3", "N"` — for completion + validation
+	ParamsCastOpen  string // "" or "client.<EnumType>(" for enum args
+	ParamsCastClose string // "" or ")" for enum args
 }
 
 // defaultLiteralFor returns the Go source literal used as the
@@ -147,6 +154,8 @@ func defaultLiteralFor(goType string) string {
 		return "false"
 	case "int64":
 		return "0"
+	case "[]string":
+		return "nil"
 	default:
 		return `""`
 	}
@@ -200,19 +209,29 @@ func buildCLIServiceData(cfg CLIConfig, sg serviceGroup) (cliServiceData, error)
 		FieldName:          sg.fieldName,
 	}
 	for _, m := range sg.methods {
-		md, err := buildCLIMethodData(sg, m)
+		md, err := buildCLIMethodData(cfg, sg, m)
 		if err != nil {
 			return cliServiceData{}, err
 		}
 		if md.ParamsType != "" {
 			data.NeedsClientImport = true
 		}
+		for _, a := range md.Required {
+			if a.EnumType != "" {
+				data.NeedsFmtImport = true
+			}
+		}
+		for _, a := range md.Optional {
+			if a.EnumType != "" {
+				data.NeedsFmtImport = true
+			}
+		}
 		data.Methods = append(data.Methods, md)
 	}
 	return data, nil
 }
 
-func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error) {
+func buildCLIMethodData(cfg CLIConfig, sg serviceGroup, m apispec.Method) (cliMethodData, error) {
 	goName, err := naming.GoMethod(m.Name)
 	if err != nil {
 		return cliMethodData{}, err
@@ -244,9 +263,27 @@ func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error
 			VarName:      naming.GoLocal(a.Name),
 			GoField:      naming.GoField(a.Name),
 			Description:  normalizeDescription(a.Description, b),
-			GoType:       goType,
+			LocalGoType:  goType,
 			FlagRegister: flagReg,
 			DefaultLit:   defaultLiteralFor(goType),
+		}
+		if enumKey := argEnumFor(m.Name, a.Name); enumKey != "" {
+			def := enumCatalogue[enumKey]
+			// Bind cobra to a string so we can validate before
+			// casting into the alias-typed Params field.
+			ca.LocalGoType = "string"
+			ca.FlagRegister = "StringVar"
+			ca.DefaultLit = `""`
+			ca.EnumType = def.Name
+			ca.EnumValues = append(ca.EnumValues, def.Values...)
+			ca.EnumValuesHuman = strings.Join(def.Values, ", ")
+			quoted := make([]string, len(def.Values))
+			for i, v := range def.Values {
+				quoted[i] = fmt.Sprintf("%q", v)
+			}
+			ca.EnumValuesGo = strings.Join(quoted, ", ")
+			ca.ParamsCastOpen = cfg.ClientPackageName + "." + def.Name + "("
+			ca.ParamsCastClose = ")"
 		}
 		if a.Optional {
 			optional = append(optional, ca)

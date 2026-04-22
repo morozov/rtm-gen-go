@@ -17,8 +17,10 @@ import (
 // overrides on scalar leaves.
 func emitResponseType(method string, root *shapeNode) (string, error) {
 	types := map[string]fieldType{}
+	enums := map[string]string{}
 	if info, ok := typeTable[method]; ok {
 		types = info.Response
+		enums = info.ResponseEnums
 	}
 	if root == nil {
 		root = &shapeNode{}
@@ -28,10 +30,13 @@ func emitResponseType(method string, root *shapeNode) (string, error) {
 	for path := range types {
 		overlayTypeTablePath(root, path)
 	}
+	for path := range enums {
+		overlayTypeTablePath(root, path)
+	}
 	if len(root.Children) == 0 && len(root.Attrs) == 0 {
 		return "struct{}", nil
 	}
-	return renderNodeAsObject(root, nil, types)
+	return renderNodeAsObject(root, nil, types, enums)
 }
 
 // overlayTypeTablePath ensures the shape tree rooted at root has
@@ -97,7 +102,7 @@ func findChild(n *shapeNode, name string) *shapeChild {
 // renderNodeType returns the Go type expression for a node at the
 // given dot-path. The returned string is a complete Go type (e.g.
 // `[]struct{...}` or `rtmInt` or `string`).
-func renderNodeType(node *shapeNode, path []string, types map[string]fieldType) (string, error) {
+func renderNodeType(node *shapeNode, path []string, types map[string]fieldType, enums map[string]string) (string, error) {
 	// Self-closed empty element: pass-through untyped. RTM's JSON
 	// renders these as `[]` when empty and `{"child":[…]}` when
 	// populated — the shape is inconsistent, so we leave it as a
@@ -108,13 +113,13 @@ func renderNodeType(node *shapeNode, path []string, types map[string]fieldType) 
 	// Text-only leaf: a scalar whose type may be overridden by
 	// typeTable.
 	if node.OnlyText || (node.HasText && len(node.Attrs) == 0 && len(node.Children) == 0) {
-		return scalarGoType(path, types), nil
+		return scalarGoType(path, types, enums), nil
 	}
 	// Object with attrs and/or children.
-	return renderNodeAsObject(node, path, types)
+	return renderNodeAsObject(node, path, types, enums)
 }
 
-func renderNodeAsObject(node *shapeNode, path []string, types map[string]fieldType) (string, error) {
+func renderNodeAsObject(node *shapeNode, path []string, types map[string]fieldType, enums map[string]string) (string, error) {
 	var b strings.Builder
 	b.WriteString("struct {\n")
 	// Text alongside attrs/children (e.g. <time timezone="..">VAL</time>)
@@ -124,7 +129,7 @@ func renderNodeAsObject(node *shapeNode, path []string, types map[string]fieldTy
 	}
 	for _, attr := range node.Attrs {
 		attrPath := append(append([]string{}, path...), attr)
-		goType := scalarGoType(attrPath, types)
+		goType := scalarGoType(attrPath, types, enums)
 		b.WriteString("\t")
 		b.WriteString(naming.GoField(attr))
 		b.WriteString(" ")
@@ -140,7 +145,7 @@ func renderNodeAsObject(node *shapeNode, path []string, types map[string]fieldTy
 			childSeg += "[]"
 		}
 		childPath := append(append([]string{}, path...), childSeg)
-		inner, err := renderNodeType(child.Node, childPath, types)
+		inner, err := renderNodeType(child.Node, childPath, types, enums)
 		if err != nil {
 			return "", err
 		}
@@ -162,10 +167,17 @@ func renderNodeAsObject(node *shapeNode, path []string, types map[string]fieldTy
 }
 
 // scalarGoType returns the Go type for a leaf at the given path.
-// The default is `string`; typeTable entries promote individual
-// fields to `rtmBool` / `rtmInt` / `rtmTime`.
-func scalarGoType(path []string, types map[string]fieldType) string {
-	if t, ok := types[strings.Join(path, ".")]; ok {
+// Enum-typed paths win first (producing the catalogue alias like
+// `Priority`); then typeTable promotes to `rtmBool` / `rtmInt` /
+// `rtmTime`; the default is `string`.
+func scalarGoType(path []string, types map[string]fieldType, enums map[string]string) string {
+	key := strings.Join(path, ".")
+	if enumKey, ok := enums[key]; ok {
+		if def, ok := enumCatalogue[enumKey]; ok {
+			return def.Name
+		}
+	}
+	if t, ok := types[key]; ok {
 		switch t {
 		case fieldTypeBool:
 			return "rtmBool"

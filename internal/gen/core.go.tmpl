@@ -273,6 +273,29 @@ func rtmFormatInt(n int64) string {
 	return strconv.FormatInt(n, 10)
 }
 
+// rtmJoinStringSlice renders a Go []string as RTM's comma-
+// delimited list wire convention. A nil or empty slice becomes
+// the empty string, which RTM interprets per each argument's
+// semantics (e.g. `tags=""` removes any existing tags).
+func rtmJoinStringSlice(xs []string) string {
+	return strings.Join(xs, ",")
+}
+
+{{ range .Enums }}
+{{- $typeName := .TypeName }}
+
+// {{ $typeName }} is an RTM enum alias. Values come from
+// rtm-gen's enum catalogue; unknown wire values survive through
+// the alias as their raw string.
+type {{ $typeName }} string
+
+const (
+{{- range .Values }}
+	{{ .GoName }} {{ $typeName }} = {{ printf "%q" .WireValue }}
+{{- end }}
+)
+{{- end }}
+
 // Sign computes RTM's api_sig over params using the client's
 // APISecret. Exposed so host code that builds signed URLs (e.g.
 // the browser auth URL during login) doesn't have to duplicate

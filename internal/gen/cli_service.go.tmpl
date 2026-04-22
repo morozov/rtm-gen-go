@@ -3,6 +3,10 @@
 package {{.PackageName}}
 
 import (
+{{- if .NeedsFmtImport }}
+	"fmt"
+
+{{ end }}
 	"github.com/spf13/cobra"
 {{- if .NeedsClientImport }}
 
@@ -26,10 +30,10 @@ func {{ .Builder }}(provider ClientProvider, format Formatter) *cobra.Command {
 {{- if or .Required .Optional }}
 	var (
 {{- range .Required }}
-		{{ .VarName }} {{ .GoType }}
+		{{ .VarName }} {{ .LocalGoType }}
 {{- end }}
 {{- range .Optional }}
-		{{ .VarName }} {{ .GoType }}
+		{{ .VarName }} {{ .LocalGoType }}
 {{- end }}
 	)
 {{- end }}
@@ -44,15 +48,35 @@ func {{ .Builder }}(provider ClientProvider, format Formatter) *cobra.Command {
 		},
 {{- end }}
 		RunE: func(cmd *cobra.Command, _ []string) error {
+{{- range .Required }}
+{{- if .EnumType }}
+			switch {{ .VarName }} {
+			case {{ .EnumValuesGo }}:
+			default:
+				return fmt.Errorf("invalid --{{ .FlagName }} %q: expected {{ .EnumValuesHuman }}", {{ .VarName }})
+			}
+{{- end }}
+{{- end }}
+{{- range .Optional }}
+{{- if .EnumType }}
+			if cmd.Flag({{ printf "%q" .FlagName }}).Changed {
+				switch {{ .VarName }} {
+				case {{ .EnumValuesGo }}:
+				default:
+					return fmt.Errorf("invalid --{{ .FlagName }} %q: expected {{ .EnumValuesHuman }}", {{ .VarName }})
+				}
+			}
+{{- end }}
+{{- end }}
 {{- if .ParamsType }}
 			params := {{ $.ClientPackageAlias }}.{{ .ParamsType }}{
 {{- range .Required }}
-				{{ .GoField }}: {{ .VarName }},
+				{{ .GoField }}: {{ .ParamsCastOpen }}{{ .VarName }}{{ .ParamsCastClose }},
 {{- end }}
 			}
 {{- range .Optional }}
 			if cmd.Flag({{ printf "%q" .FlagName }}).Changed {
-				v := {{ .VarName }}
+				v := {{ .ParamsCastOpen }}{{ .VarName }}{{ .ParamsCastClose }}
 				params.{{ .GoField }} = &v
 			}
 {{- end }}
@@ -69,9 +93,21 @@ func {{ .Builder }}(provider ClientProvider, format Formatter) *cobra.Command {
 {{- range .Required }}
 	cmd.Flags().{{ .FlagRegister }}(&{{ .VarName }}, {{ printf "%q" .FlagName }}, {{ .DefaultLit }}, {{ printf "%q" .Description }})
 	_ = cmd.MarkFlagRequired({{ printf "%q" .FlagName }})
+{{- if .EnumType }}
+	_ = cmd.RegisterFlagCompletionFunc({{ printf "%q" .FlagName }}, func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{ {{ .EnumValuesGo }} }, cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = cmd.Flags().SetAnnotation({{ printf "%q" .FlagName }}, "rtm-gen.enum", []string{ {{ .EnumValuesGo }} })
+{{- end }}
 {{- end }}
 {{- range .Optional }}
 	cmd.Flags().{{ .FlagRegister }}(&{{ .VarName }}, {{ printf "%q" .FlagName }}, {{ .DefaultLit }}, {{ printf "%q" .Description }})
+{{- if .EnumType }}
+	_ = cmd.RegisterFlagCompletionFunc({{ printf "%q" .FlagName }}, func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{ {{ .EnumValuesGo }} }, cobra.ShellCompDirectiveNoFileComp
+	})
+	_ = cmd.Flags().SetAnnotation({{ printf "%q" .FlagName }}, "rtm-gen.enum", []string{ {{ .EnumValuesGo }} })
+{{- end }}
 {{- end }}
 	return cmd
 }

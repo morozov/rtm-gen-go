@@ -16,19 +16,55 @@ const (
 type argType int
 
 const (
-	argTypeString argType = iota
-	argTypeBool
-	argTypeInt
+	argTypeString      argType = iota
+	argTypeBool                // → `BoolVar`
+	argTypeInt                 // → `Int64Var`
+	argTypeStringSlice         // → `StringSliceVar`, joined with `,` on wire
 )
+
+// enumDef describes a closed-set of RTM wire values with matching
+// Go identifiers. A single catalogue entry backs every method that
+// accepts or returns the same conceptual enum (e.g. `priority` is
+// `priority` everywhere RTM uses it).
+type enumDef struct {
+	Name    string   // Go alias type name, e.g. "Priority"
+	Values  []string // wire values, catalogue order
+	GoNames []string // Go const identifiers, 1:1 with Values
+}
+
+// enumCatalogue holds every enum the generator emits. Keys are
+// semantic names referenced from per-method `ArgEnums` and
+// `ResponseEnums` maps. Values mirror RTM's wire exactly — no
+// semantic renaming.
+var enumCatalogue = map[string]enumDef{
+	"priority": {
+		Name:    "Priority",
+		Values:  []string{"1", "2", "3", "N"},
+		GoNames: []string{"Priority1", "Priority2", "Priority3", "PriorityN"},
+	},
+	"perms": {
+		Name:    "Perms",
+		Values:  []string{"read", "write", "delete"},
+		GoNames: []string{"PermsRead", "PermsWrite", "PermsDelete"},
+	},
+	"direction": {
+		Name:    "Direction",
+		Values:  []string{"up", "down"},
+		GoNames: []string{"DirectionUp", "DirectionDown"},
+	},
+}
 
 // methodTypeInfo groups a single RTM method's wire-type info.
 // Arguments feeds spec 009 (typed cobra flags); Response feeds
-// spec 008 (typed response structs). The two halves are
+// spec 008 (typed response structs). ArgEnums and ResponseEnums
+// feed spec 011 (enum aliases on both sides). The halves are
 // independently maintained; their co-location is a readability
 // choice.
 type methodTypeInfo struct {
-	Arguments map[string]argType
-	Response  map[string]fieldType
+	Arguments     map[string]argType
+	Response      map[string]fieldType
+	ArgEnums      map[string]string // arg-name → enumCatalogue key
+	ResponseEnums map[string]string // dot-path → enumCatalogue key
 }
 
 // listResponseFields describes the attribute set every `<list>`
@@ -76,24 +112,33 @@ func taskIDArgsPlus(extras map[string]argType) map[string]argType {
 //
 // Timestamp fields (`added`, `completed`, `created`, `modified`,
 // `due`, `start`, `deleted`) are typed as `fieldTypeTime` —
-// `rtmTime` handles RTM's "" → null convention. `priority` stays
-// stringly-typed (enum "1"/"2"/"3"/"N"). `estimate` stays a
-// string (free-form duration like `"5 minutes"`).
+// `rtmTime` handles RTM's "" → null convention. `estimate` stays
+// a string (free-form duration like `"5 minutes"`). `priority`
+// is covered by taskResponseEnums, a sibling helper.
 func taskResponseFields(prefix string) map[string]fieldType {
 	return map[string]fieldType{
-		prefix + ".id":                                  fieldTypeInt,
-		prefix + ".taskseries[].id":                     fieldTypeInt,
-		prefix + ".taskseries[].created":                fieldTypeTime,
-		prefix + ".taskseries[].modified":               fieldTypeTime,
-		prefix + ".taskseries[].task[].id":              fieldTypeInt,
-		prefix + ".taskseries[].task[].has_due_time":    fieldTypeBool,
-		prefix + ".taskseries[].task[].has_start_time":  fieldTypeBool,
-		prefix + ".taskseries[].task[].postponed":       fieldTypeInt,
-		prefix + ".taskseries[].task[].added":           fieldTypeTime,
-		prefix + ".taskseries[].task[].completed":       fieldTypeTime,
-		prefix + ".taskseries[].task[].deleted":         fieldTypeTime,
-		prefix + ".taskseries[].task[].due":             fieldTypeTime,
-		prefix + ".taskseries[].task[].start":           fieldTypeTime,
+		prefix + ".id":                                 fieldTypeInt,
+		prefix + ".taskseries[].id":                    fieldTypeInt,
+		prefix + ".taskseries[].created":               fieldTypeTime,
+		prefix + ".taskseries[].modified":              fieldTypeTime,
+		prefix + ".taskseries[].task[].id":             fieldTypeInt,
+		prefix + ".taskseries[].task[].has_due_time":   fieldTypeBool,
+		prefix + ".taskseries[].task[].has_start_time": fieldTypeBool,
+		prefix + ".taskseries[].task[].postponed":      fieldTypeInt,
+		prefix + ".taskseries[].task[].added":          fieldTypeTime,
+		prefix + ".taskseries[].task[].completed":      fieldTypeTime,
+		prefix + ".taskseries[].task[].deleted":        fieldTypeTime,
+		prefix + ".taskseries[].task[].due":            fieldTypeTime,
+		prefix + ".taskseries[].task[].start":          fieldTypeTime,
+	}
+}
+
+// taskResponseEnums lists the enum-valued response fields every
+// task-returning rtm.tasks.* method produces. Today that's
+// `priority` on each task row.
+func taskResponseEnums(prefix string) map[string]string {
+	return map[string]string{
+		prefix + ".taskseries[].task[].priority": "priority",
 	}
 }
 
@@ -104,8 +149,14 @@ func taskResponseFields(prefix string) map[string]fieldType {
 // the table entirely — default to `fieldTypeString`.
 var typeTable = map[string]methodTypeInfo{
 	// ---- auth ------------------------------------------------
-	"rtm.auth.checkToken": {Response: map[string]fieldType{"auth.user.id": fieldTypeInt}},
-	"rtm.auth.getToken":   {Response: map[string]fieldType{"auth.user.id": fieldTypeInt}},
+	"rtm.auth.checkToken": {
+		Response:      map[string]fieldType{"auth.user.id": fieldTypeInt},
+		ResponseEnums: map[string]string{"auth.perms": "perms"},
+	},
+	"rtm.auth.getToken": {
+		Response:      map[string]fieldType{"auth.user.id": fieldTypeInt},
+		ResponseEnums: map[string]string{"auth.perms": "perms"},
+	},
 	// auth.getFrob — frob is a hex-string nonce, stays string.
 
 	// ---- contacts --------------------------------------------
@@ -224,12 +275,22 @@ var typeTable = map[string]methodTypeInfo{
 			"parse":          argTypeBool,
 			"parent_task_id": argTypeInt,
 		},
-		Response: taskResponseFields("list"),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
 	},
-	"rtm.tasks.addTags":      {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
-	"rtm.tasks.complete":     {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
-	"rtm.tasks.delete":       {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
-	"rtm.tasks.movePriority": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.addTags": {
+		Arguments:     taskIDArgsPlus(map[string]argType{"tags": argTypeStringSlice}),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
+	},
+	"rtm.tasks.complete":  {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
+	"rtm.tasks.delete":    {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
+	"rtm.tasks.movePriority": {
+		Arguments:     taskIDArgs(),
+		ArgEnums:      map[string]string{"direction": "direction"},
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
+	},
 	"rtm.tasks.moveTo": {
 		Arguments: map[string]argType{
 			"from_list_id":  argTypeInt,
@@ -237,46 +298,63 @@ var typeTable = map[string]methodTypeInfo{
 			"taskseries_id": argTypeInt,
 			"task_id":       argTypeInt,
 		},
-		Response: taskResponseFields("list"),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
 	},
-	"rtm.tasks.postpone":   {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
-	"rtm.tasks.removeTags": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.postpone": {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
+	"rtm.tasks.removeTags": {
+		Arguments:     taskIDArgsPlus(map[string]argType{"tags": argTypeStringSlice}),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
+	},
 	"rtm.tasks.setDueDate": {
 		Arguments: taskIDArgsPlus(map[string]argType{
 			"has_due_time": argTypeBool,
 			"parse":        argTypeBool,
 		}),
-		Response: taskResponseFields("list"),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
 	},
-	"rtm.tasks.setEstimate": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setEstimate": {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
 	"rtm.tasks.setLocation": {
-		Arguments: taskIDArgsPlus(map[string]argType{"location_id": argTypeInt}),
-		Response:  taskResponseFields("list"),
+		Arguments:     taskIDArgsPlus(map[string]argType{"location_id": argTypeInt}),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
 	},
-	"rtm.tasks.setName": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setName": {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
 	"rtm.tasks.setParentTask": {
-		Arguments: taskIDArgsPlus(map[string]argType{"parent_task_id": argTypeInt}),
-		Response:  taskResponseFields("list"),
+		Arguments:     taskIDArgsPlus(map[string]argType{"parent_task_id": argTypeInt}),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
 	},
-	// setPriority's `priority` is enum ("1"/"2"/"3"/"N"); keep
-	// it a string flag until the enum spec lands.
-	"rtm.tasks.setPriority":   {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
-	"rtm.tasks.setRecurrence": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setPriority": {
+		Arguments:     taskIDArgs(),
+		ArgEnums:      map[string]string{"priority": "priority"},
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
+	},
+	"rtm.tasks.setRecurrence": {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
 	"rtm.tasks.setStartDate": {
 		Arguments: taskIDArgsPlus(map[string]argType{
 			"has_start_time": argTypeBool,
 			"parse":          argTypeBool,
 		}),
-		Response: taskResponseFields("list"),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
 	},
-	"rtm.tasks.setTags":    {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
-	"rtm.tasks.setURL":     {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
-	"rtm.tasks.uncomplete": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setTags": {
+		Arguments:     taskIDArgsPlus(map[string]argType{"tags": argTypeStringSlice}),
+		Response:      taskResponseFields("list"),
+		ResponseEnums: taskResponseEnums("list"),
+	},
+	"rtm.tasks.setURL":     {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
+	"rtm.tasks.uncomplete": {Arguments: taskIDArgs(), Response: taskResponseFields("list"), ResponseEnums: taskResponseEnums("list")},
 
 	// ---- tasks (read) ----------------------------------------
 	"rtm.tasks.getList": {
-		Arguments: map[string]argType{"list_id": argTypeInt},
-		Response:  taskResponseFields("tasks.list[]"),
+		Arguments:     map[string]argType{"list_id": argTypeInt},
+		Response:      taskResponseFields("tasks.list[]"),
+		ResponseEnums: taskResponseEnums("tasks.list[]"),
 	},
 
 	// ---- tasks.notes -----------------------------------------

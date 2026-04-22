@@ -71,7 +71,11 @@ func GenerateClient(spec apispec.Spec, cfg Config) ([]string, error) {
 	written := make([]string, 0, len(groups)+1)
 
 	corePath := filepath.Join(cfg.OutDir, "client.go")
-	coreData := coreData{PackageName: cfg.PackageName, Services: serviceRefs(groups)}
+	coreData := coreData{
+		PackageName: cfg.PackageName,
+		Services:    serviceRefs(groups),
+		Enums:       enumsUsedBy(spec),
+	}
 	if err := renderGoFile(corePath, coreTmpl, coreData); err != nil {
 		return nil, err
 	}
@@ -105,6 +109,19 @@ func validateConfig(cfg Config) error {
 type coreData struct {
 	PackageName string
 	Services    []serviceRef
+	Enums       []enumRenderData
+}
+
+// enumRenderData is the per-enum view rendered into the client's
+// core file: one named string type plus a const block.
+type enumRenderData struct {
+	TypeName string
+	Values   []enumValueRenderData
+}
+
+type enumValueRenderData struct {
+	GoName    string
+	WireValue string
 }
 
 type serviceRef struct {
@@ -250,8 +267,8 @@ type argData struct {
 	Name        string
 	GoName      string
 	Description string
-	GoType      string // "string" | "bool" | "int64"
-	WireFunc    string // "" (no conversion) | "rtmFormatBool" | "rtmFormatInt"
+	GoType      string // primitive ("string"/"bool"/"int64"/"[]string") or enum alias name
+	WireFunc    string // "" (no conversion) | "rtmFormatBool" | "rtmFormatInt" | "rtmJoinStringSlice" | "string" (enum cast)
 }
 
 type serviceGroup struct {
@@ -302,6 +319,44 @@ func serviceRefs(groups []serviceGroup) []serviceRef {
 	return out
 }
 
+// enumsUsedBy walks typeTable for methods present in spec and
+// returns the subset of enumCatalogue entries actually referenced
+// as an arg or response enum. Keeps the generated client free of
+// enum declarations no emitted code uses.
+func enumsUsedBy(spec apispec.Spec) []enumRenderData {
+	used := map[string]struct{}{}
+	present := map[string]struct{}{}
+	for _, m := range spec {
+		present[m.Name] = struct{}{}
+	}
+	for method, info := range typeTable {
+		if _, ok := present[method]; !ok {
+			continue
+		}
+		for _, key := range info.ArgEnums {
+			used[key] = struct{}{}
+		}
+		for _, key := range info.ResponseEnums {
+			used[key] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(used))
+	for k := range used {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]enumRenderData, 0, len(keys))
+	for _, k := range keys {
+		def := enumCatalogue[k]
+		vals := make([]enumValueRenderData, len(def.Values))
+		for i, v := range def.Values {
+			vals[i] = enumValueRenderData{GoName: def.GoNames[i], WireValue: v}
+		}
+		out = append(out, enumRenderData{TypeName: def.Name, Values: vals})
+	}
+	return out
+}
+
 func buildServiceData(pkgName string, sg serviceGroup) (serviceData, error) {
 	data := serviceData{
 		PackageName: pkgName,
@@ -331,6 +386,8 @@ func argTypeInfo(t argType) (goType, flagRegister, wireFunc string) {
 		return "bool", "BoolVar", "rtmFormatBool"
 	case argTypeInt:
 		return "int64", "Int64Var", "rtmFormatInt"
+	case argTypeStringSlice:
+		return "[]string", "StringSliceVar", "rtmJoinStringSlice"
 	default:
 		return "string", "StringVar", ""
 	}
@@ -345,6 +402,28 @@ func argTypeFor(method, argName string) argType {
 	return argTypeString
 }
 
+// argEnumFor returns the enum catalogue key an argument is bound
+// to, or "" if the argument isn't an enum. Enum args take priority
+// over `Arguments` entries — the catalogue supplies both the Go
+// alias type and the legal-values set.
+func argEnumFor(method, argName string) string {
+	info, ok := typeTable[method]
+	if !ok {
+		return ""
+	}
+	return info.ArgEnums[argName]
+}
+
+// responseEnumFor returns the enum catalogue key a response path
+// is bound to, or "" if the field isn't an enum.
+func responseEnumFor(method, path string) string {
+	info, ok := typeTable[method]
+	if !ok {
+		return ""
+	}
+	return info.ResponseEnums[path]
+}
+
 func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	goName, err := naming.GoMethod(m.Name)
 	if err != nil {
@@ -356,6 +435,11 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 			continue
 		}
 		goType, _, wireFunc := argTypeInfo(argTypeFor(m.Name, a.Name))
+		if enumKey := argEnumFor(m.Name, a.Name); enumKey != "" {
+			def := enumCatalogue[enumKey]
+			goType = def.Name
+			wireFunc = "string" // enum → wire string is a native Go conversion
+		}
 		ad := argData{
 			Name:        a.Name,
 			GoName:      naming.GoField(a.Name),
