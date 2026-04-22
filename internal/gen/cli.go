@@ -129,10 +129,27 @@ type cliMethodData struct {
 }
 
 type cliArg struct {
-	FlagName    string
-	VarName     string
-	GoField     string
-	Description string
+	FlagName     string
+	VarName      string
+	GoField      string
+	Description  string
+	GoType       string // "string" | "bool" | "int64"
+	FlagRegister string // "StringVar" | "BoolVar" | "Int64Var"
+	DefaultLit   string // `""` | `false` | `0`
+}
+
+// defaultLiteralFor returns the Go source literal used as the
+// default value when registering a cobra flag of the given Go
+// type. Matches the zero value of the type.
+func defaultLiteralFor(goType string) string {
+	switch goType {
+	case "bool":
+		return "false"
+	case "int64":
+		return "0"
+	default:
+		return `""`
+	}
 }
 
 func buildCLIRegisterData(cfg CLIConfig, groups []serviceGroup) cliRegisterData {
@@ -221,11 +238,15 @@ func buildCLIMethodData(sg serviceGroup, m apispec.Method) (cliMethodData, error
 		if _, skip := autoInjected[a.Name]; skip {
 			continue
 		}
+		goType, flagReg, _ := argTypeInfo(argTypeFor(m.Name, a.Name))
 		ca := cliArg{
-			FlagName:    strings.ReplaceAll(a.Name, "_", "-"),
-			VarName:     naming.GoLocal(a.Name),
-			GoField:     naming.GoField(a.Name),
-			Description: normalizeDescription(a.Description, b),
+			FlagName:     strings.ReplaceAll(a.Name, "_", "-"),
+			VarName:      naming.GoLocal(a.Name),
+			GoField:      naming.GoField(a.Name),
+			Description:  normalizeDescription(a.Description, b),
+			GoType:       goType,
+			FlagRegister: flagReg,
+			DefaultLit:   defaultLiteralFor(goType),
 		}
 		if a.Optional {
 			optional = append(optional, ca)

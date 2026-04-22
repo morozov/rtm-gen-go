@@ -26,10 +26,10 @@ func {{ .Builder }}(provider ClientProvider, format Formatter) *cobra.Command {
 {{- if or .Required .Optional }}
 	var (
 {{- range .Required }}
-		{{ .VarName }} string
+		{{ .VarName }} {{ .GoType }}
 {{- end }}
 {{- range .Optional }}
-		{{ .VarName }} string
+		{{ .VarName }} {{ .GoType }}
 {{- end }}
 	)
 {{- end }}
@@ -67,11 +67,11 @@ func {{ .Builder }}(provider ClientProvider, format Formatter) *cobra.Command {
 		},
 	}
 {{- range .Required }}
-	cmd.Flags().StringVar(&{{ .VarName }}, {{ printf "%q" .FlagName }}, "", {{ printf "%q" .Description }})
+	cmd.Flags().{{ .FlagRegister }}(&{{ .VarName }}, {{ printf "%q" .FlagName }}, {{ .DefaultLit }}, {{ printf "%q" .Description }})
 	_ = cmd.MarkFlagRequired({{ printf "%q" .FlagName }})
 {{- end }}
 {{- range .Optional }}
-	cmd.Flags().StringVar(&{{ .VarName }}, {{ printf "%q" .FlagName }}, "", {{ printf "%q" .Description }})
+	cmd.Flags().{{ .FlagRegister }}(&{{ .VarName }}, {{ printf "%q" .FlagName }}, {{ .DefaultLit }}, {{ printf "%q" .Description }})
 {{- end }}
 	return cmd
 }

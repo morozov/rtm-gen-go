@@ -250,6 +250,8 @@ type argData struct {
 	Name        string
 	GoName      string
 	Description string
+	GoType      string // "string" | "bool" | "int64"
+	WireFunc    string // "" (no conversion) | "rtmFormatBool" | "rtmFormatInt"
 }
 
 type serviceGroup struct {
@@ -317,6 +319,32 @@ func buildServiceData(pkgName string, sg serviceGroup) (serviceData, error) {
 	return data, nil
 }
 
+// argTypeInfo resolves an argType into the triple of Go source
+// fragments the generator's templates need: the Go type name for
+// a Params struct field, the cobra flag register to call, and
+// the helper that stringifies a Go value back to RTM's wire
+// format. The untyped default (argTypeString) returns empty
+// WireFunc to signal "use the value directly".
+func argTypeInfo(t argType) (goType, flagRegister, wireFunc string) {
+	switch t {
+	case argTypeBool:
+		return "bool", "BoolVar", "rtmFormatBool"
+	case argTypeInt:
+		return "int64", "Int64Var", "rtmFormatInt"
+	default:
+		return "string", "StringVar", ""
+	}
+}
+
+func argTypeFor(method, argName string) argType {
+	if info, ok := typeTable[method]; ok {
+		if t, ok := info.Arguments[argName]; ok {
+			return t
+		}
+	}
+	return argTypeString
+}
+
 func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	goName, err := naming.GoMethod(m.Name)
 	if err != nil {
@@ -327,10 +355,13 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 		if _, skip := autoInjected[a.Name]; skip {
 			continue
 		}
+		goType, _, wireFunc := argTypeInfo(argTypeFor(m.Name, a.Name))
 		ad := argData{
 			Name:        a.Name,
 			GoName:      naming.GoField(a.Name),
 			Description: normalizeDescription(a.Description, nil),
+			GoType:      goType,
+			WireFunc:    wireFunc,
 		}
 		if a.Optional {
 			optional = append(optional, ad)

@@ -257,6 +257,22 @@ func (t rtmTime) MarshalYAML() (any, error) {
 	return t.Time, nil
 }
 
+// rtmFormatBool renders a Go bool into RTM's wire convention
+// ("0" for false, "1" for true). Used by every generated service
+// method that carries a bool argument.
+func rtmFormatBool(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+
+// rtmFormatInt renders a Go int64 into a decimal string suitable
+// for RTM's stringly-typed query parameters.
+func rtmFormatInt(n int64) string {
+	return strconv.FormatInt(n, 10)
+}
+
 func (c *Client) sign(params url.Values) string {
 	keys := make([]string, 0, len(params))
 	for k := range params {

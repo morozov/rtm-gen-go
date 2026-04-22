@@ -47,6 +47,28 @@ func listResponseFields(prefix string) map[string]fieldType {
 	}
 }
 
+// taskIDArgs is the `{list_id, taskseries_id, task_id}` trio
+// every rtm.tasks.* write method uses to identify a target task.
+// All three are integer IDs on the wire.
+func taskIDArgs() map[string]argType {
+	return map[string]argType{
+		"list_id":       argTypeInt,
+		"taskseries_id": argTypeInt,
+		"task_id":       argTypeInt,
+	}
+}
+
+// taskIDArgsPlus extends taskIDArgs() with method-specific
+// typed arguments. Unknown keys clobber the ID entries if they
+// overlap (they don't, in practice).
+func taskIDArgsPlus(extras map[string]argType) map[string]argType {
+	out := taskIDArgs()
+	for k, v := range extras {
+		out[k] = v
+	}
+	return out
+}
+
 // taskResponseFields describes the shape every task-returning
 // rtm.tasks.* method produces. Write methods return `list.*`
 // (one list wrapping one taskseries); `rtm.tasks.getList` returns
@@ -88,6 +110,7 @@ var typeTable = map[string]methodTypeInfo{
 
 	// ---- contacts --------------------------------------------
 	"rtm.contacts.add":     {Response: map[string]fieldType{"contact.id": fieldTypeInt}},
+	"rtm.contacts.delete":  {Arguments: map[string]argType{"contact_id": argTypeInt}},
 	"rtm.contacts.getList": {Response: map[string]fieldType{"contacts.contact[].id": fieldTypeInt}},
 
 	// ---- groups ----------------------------------------------
@@ -95,18 +118,40 @@ var typeTable = map[string]methodTypeInfo{
 		"group.id":                    fieldTypeInt,
 		"group.contacts.contact[].id": fieldTypeInt,
 	}},
+	"rtm.groups.addContact": {Arguments: map[string]argType{
+		"group_id":   argTypeInt,
+		"contact_id": argTypeInt,
+	}},
+	"rtm.groups.delete": {Arguments: map[string]argType{"group_id": argTypeInt}},
 	"rtm.groups.getList": {Response: map[string]fieldType{
 		"groups.group[].id":                    fieldTypeInt,
 		"groups.group[].contacts.contact[].id": fieldTypeInt,
 	}},
+	"rtm.groups.removeContact": {Arguments: map[string]argType{
+		"group_id":   argTypeInt,
+		"contact_id": argTypeInt,
+	}},
 
 	// ---- lists -----------------------------------------------
-	"rtm.lists.add":       {Response: listResponseFields("list")},
-	"rtm.lists.archive":   {Response: listResponseFields("list")},
-	"rtm.lists.delete":    {Response: listResponseFields("list")},
-	"rtm.lists.setName":   {Response: listResponseFields("list")},
-	"rtm.lists.unarchive": {Response: listResponseFields("list")},
-	"rtm.lists.getList":   {Response: listResponseFields("lists.list[]")},
+	"rtm.lists.add":     {Response: listResponseFields("list")},
+	"rtm.lists.archive": {
+		Arguments: map[string]argType{"list_id": argTypeInt},
+		Response:  listResponseFields("list"),
+	},
+	"rtm.lists.delete": {
+		Arguments: map[string]argType{"list_id": argTypeInt},
+		Response:  listResponseFields("list"),
+	},
+	"rtm.lists.setDefaultList": {Arguments: map[string]argType{"list_id": argTypeInt}},
+	"rtm.lists.setName": {
+		Arguments: map[string]argType{"list_id": argTypeInt},
+		Response:  listResponseFields("list"),
+	},
+	"rtm.lists.unarchive": {
+		Arguments: map[string]argType{"list_id": argTypeInt},
+		Response:  listResponseFields("list"),
+	},
+	"rtm.lists.getList": {Response: listResponseFields("lists.list[]")},
 
 	// ---- locations -------------------------------------------
 	"rtm.locations.getList": {Response: map[string]fieldType{
@@ -124,6 +169,7 @@ var typeTable = map[string]methodTypeInfo{
 		"subscription.id":      fieldTypeInt,
 		"subscription.pending": fieldTypeBool,
 	}},
+	"rtm.push.unsubscribe": {Arguments: map[string]argType{"subscription_id": argTypeInt}},
 
 	// ---- reflection ------------------------------------------
 	"rtm.reflection.getMethodInfo": {Response: map[string]fieldType{
@@ -135,12 +181,29 @@ var typeTable = map[string]methodTypeInfo{
 	}},
 
 	// ---- scripts ---------------------------------------------
-	"rtm.scripts.add":       {Response: map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime}},
-	"rtm.scripts.getList":   {Response: map[string]fieldType{"scripts.script[].id": fieldTypeInt, "scripts.script[].created": fieldTypeTime, "scripts.script[].modified": fieldTypeTime}},
-	"rtm.scripts.run":       {Response: map[string]fieldType{"execution.id": fieldTypeInt}},
-	"rtm.scripts.setCode":   {Response: map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime}},
-	"rtm.scripts.setName":   {Response: map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime}},
-	"rtm.scripts.setParams": {Response: map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime}},
+	"rtm.scripts.add":    {Response: map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime}},
+	"rtm.scripts.delete": {Arguments: map[string]argType{"script_id": argTypeInt}},
+	"rtm.scripts.getList": {Response: map[string]fieldType{
+		"scripts.script[].id":       fieldTypeInt,
+		"scripts.script[].created":  fieldTypeTime,
+		"scripts.script[].modified": fieldTypeTime,
+	}},
+	"rtm.scripts.run": {
+		Arguments: map[string]argType{"script_id": argTypeInt},
+		Response:  map[string]fieldType{"execution.id": fieldTypeInt},
+	},
+	"rtm.scripts.setCode": {
+		Arguments: map[string]argType{"script_id": argTypeInt},
+		Response:  map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime},
+	},
+	"rtm.scripts.setName": {
+		Arguments: map[string]argType{"script_id": argTypeInt},
+		Response:  map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime},
+	},
+	"rtm.scripts.setParams": {
+		Arguments: map[string]argType{"script_id": argTypeInt},
+		Response:  map[string]fieldType{"script.id": fieldTypeInt, "script.created": fieldTypeTime, "script.modified": fieldTypeTime},
+	},
 
 	// ---- settings --------------------------------------------
 	"rtm.settings.getList": {Response: map[string]fieldType{
@@ -151,32 +214,81 @@ var typeTable = map[string]methodTypeInfo{
 	}},
 
 	// ---- tasks (write methods — single list wrapper) ---------
-	"rtm.tasks.add":           {Response: taskResponseFields("list")},
-	"rtm.tasks.addTags":       {Response: taskResponseFields("list")},
-	"rtm.tasks.complete":      {Response: taskResponseFields("list")},
-	"rtm.tasks.delete":        {Response: taskResponseFields("list")},
-	"rtm.tasks.movePriority":  {Response: taskResponseFields("list")},
-	"rtm.tasks.moveTo":        {Response: taskResponseFields("list")},
-	"rtm.tasks.postpone":      {Response: taskResponseFields("list")},
-	"rtm.tasks.removeTags":    {Response: taskResponseFields("list")},
-	"rtm.tasks.setDueDate":    {Response: taskResponseFields("list")},
-	"rtm.tasks.setEstimate":   {Response: taskResponseFields("list")},
-	"rtm.tasks.setLocation":   {Response: taskResponseFields("list")},
-	"rtm.tasks.setName":       {Response: taskResponseFields("list")},
-	"rtm.tasks.setParentTask": {Response: taskResponseFields("list")},
-	"rtm.tasks.setPriority":   {Response: taskResponseFields("list")},
-	"rtm.tasks.setRecurrence": {Response: taskResponseFields("list")},
-	"rtm.tasks.setStartDate":  {Response: taskResponseFields("list")},
-	"rtm.tasks.setTags":       {Response: taskResponseFields("list")},
-	"rtm.tasks.setURL":        {Response: taskResponseFields("list")},
-	"rtm.tasks.uncomplete":    {Response: taskResponseFields("list")},
+	// tasks.add accepts an optional list_id, name (string), parse
+	// (bool) — plus parent_task_id / external_id. list_id is
+	// technically optional on add; the generator still types it
+	// when it's present.
+	"rtm.tasks.add": {
+		Arguments: map[string]argType{
+			"list_id":        argTypeInt,
+			"parse":          argTypeBool,
+			"parent_task_id": argTypeInt,
+		},
+		Response: taskResponseFields("list"),
+	},
+	"rtm.tasks.addTags":      {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.complete":     {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.delete":       {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.movePriority": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.moveTo": {
+		Arguments: map[string]argType{
+			"from_list_id":  argTypeInt,
+			"to_list_id":    argTypeInt,
+			"taskseries_id": argTypeInt,
+			"task_id":       argTypeInt,
+		},
+		Response: taskResponseFields("list"),
+	},
+	"rtm.tasks.postpone":   {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.removeTags": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setDueDate": {
+		Arguments: taskIDArgsPlus(map[string]argType{
+			"has_due_time": argTypeBool,
+			"parse":        argTypeBool,
+		}),
+		Response: taskResponseFields("list"),
+	},
+	"rtm.tasks.setEstimate": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setLocation": {
+		Arguments: taskIDArgsPlus(map[string]argType{"location_id": argTypeInt}),
+		Response:  taskResponseFields("list"),
+	},
+	"rtm.tasks.setName": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setParentTask": {
+		Arguments: taskIDArgsPlus(map[string]argType{"parent_task_id": argTypeInt}),
+		Response:  taskResponseFields("list"),
+	},
+	// setPriority's `priority` is enum ("1"/"2"/"3"/"N"); keep
+	// it a string flag until the enum spec lands.
+	"rtm.tasks.setPriority":   {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setRecurrence": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setStartDate": {
+		Arguments: taskIDArgsPlus(map[string]argType{
+			"has_start_time": argTypeBool,
+			"parse":          argTypeBool,
+		}),
+		Response: taskResponseFields("list"),
+	},
+	"rtm.tasks.setTags":    {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.setURL":     {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
+	"rtm.tasks.uncomplete": {Arguments: taskIDArgs(), Response: taskResponseFields("list")},
 
 	// ---- tasks (read) ----------------------------------------
-	"rtm.tasks.getList": {Response: taskResponseFields("tasks.list[]")},
+	"rtm.tasks.getList": {
+		Arguments: map[string]argType{"list_id": argTypeInt},
+		Response:  taskResponseFields("tasks.list[]"),
+	},
 
 	// ---- tasks.notes -----------------------------------------
-	"rtm.tasks.notes.add":  {Response: map[string]fieldType{"note.id": fieldTypeInt, "note.created": fieldTypeTime, "note.modified": fieldTypeTime}},
-	"rtm.tasks.notes.edit": {Response: map[string]fieldType{"note.id": fieldTypeInt, "note.created": fieldTypeTime, "note.modified": fieldTypeTime}},
+	"rtm.tasks.notes.add": {
+		Arguments: taskIDArgs(),
+		Response:  map[string]fieldType{"note.id": fieldTypeInt, "note.created": fieldTypeTime, "note.modified": fieldTypeTime},
+	},
+	"rtm.tasks.notes.delete": {Arguments: map[string]argType{"note_id": argTypeInt}},
+	"rtm.tasks.notes.edit": {
+		Arguments: map[string]argType{"note_id": argTypeInt},
+		Response:  map[string]fieldType{"note.id": fieldTypeInt, "note.created": fieldTypeTime, "note.modified": fieldTypeTime},
+	},
 
 	// ---- test ------------------------------------------------
 	"rtm.test.login": {Response: map[string]fieldType{"user.id": fieldTypeInt}},
@@ -191,6 +303,9 @@ var typeTable = map[string]methodTypeInfo{
 		"timezones.timezone[].offset":         fieldTypeInt,
 		"timezones.timezone[].current_offset": fieldTypeInt,
 	}},
+
+	// ---- transactions ----------------------------------------
+	"rtm.transactions.undo": {Arguments: map[string]argType{"transaction_id": argTypeInt}},
 
 	// ---- synthetic fixture -----------------------------------
 	"rtm.fixture.requiredOnly": {Response: map[string]fieldType{

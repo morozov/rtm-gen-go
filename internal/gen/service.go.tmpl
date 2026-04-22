@@ -20,11 +20,11 @@ type {{ .TypeName }} struct {
 type {{ .ParamsType }} struct {
 {{- range .Required }}
 {{ if .Description }}	// {{ .Description }}
-{{ end }}	{{ .GoName }} string
+{{ end }}	{{ .GoName }} {{ .GoType }}
 {{- end }}
 {{- range .Optional }}
 {{ if .Description }}	// {{ .Description }}
-{{ end }}	{{ .GoName }} *string
+{{ end }}	{{ .GoName }} *{{ .GoType }}
 {{- end }}
 }
 {{- end }}
@@ -40,11 +40,19 @@ type {{ .ResponseType }} {{ .ResponseGoSource }}
 func (s *{{ $.TypeName }}) {{ .GoName }}(ctx context.Context{{ if .ParamsType }}, p {{ .ParamsType }}{{ end }}) (*{{ .ResponseType }}, error) {
 	vals := url.Values{}
 {{- range .Required }}
+{{- if .WireFunc }}
+	vals.Set({{ printf "%q" .Name }}, {{ .WireFunc }}(p.{{ .GoName }}))
+{{- else }}
 	vals.Set({{ printf "%q" .Name }}, p.{{ .GoName }})
+{{- end }}
 {{- end }}
 {{- range .Optional }}
 	if p.{{ .GoName }} != nil {
+{{- if .WireFunc }}
+		vals.Set({{ printf "%q" .Name }}, {{ .WireFunc }}(*p.{{ .GoName }}))
+{{- else }}
 		vals.Set({{ printf "%q" .Name }}, *p.{{ .GoName }})
+{{- end }}
 	}
 {{- end }}
 	body, err := s.client.Call(ctx, {{ printf "%q" .RTMName }}, {{ .NeedsLogin }}, {{ .NeedsTimeline }}, {{ .NeedsSigning }}, vals)
