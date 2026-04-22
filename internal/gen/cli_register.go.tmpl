@@ -10,6 +10,13 @@ import (
 	{{.ClientPackageAlias}} "{{.ClientModulePath}}"
 )
 
+// GroupID is the cobra command group that Register files every
+// top-level RTM service command under, so `<program> --help`
+// renders RTM commands in their own section. Exported so hosts
+// can avoid ID collisions or file their own commands into the
+// same section.
+const GroupID = "rtm"
+
 // ClientProvider returns the *{{.ClientPackageAlias}}.Client to use
 // for a command invocation. It is called inside each generated
 // command's RunE so the host can defer client construction until
@@ -26,7 +33,11 @@ type Formatter func(w io.Writer, body any) error
 // groups for nested services) to root. The provider supplies the
 // RTM client at call time; the formatter decides how each command's
 // successful response is rendered to stdout.
+//
+// Register adds a cobra command group with id GroupID ("rtm") to
+// root and assigns every top-level RTM command to it.
 func Register(root *cobra.Command, provider ClientProvider, format Formatter) {
+	root.AddGroup(&cobra.Group{ID: GroupID, Title: "RTM API Commands:"})
 {{- range .AllServices }}
 	{{ .VarName }} := {{ .Builder }}(provider, format)
 {{- end }}
@@ -34,6 +45,7 @@ func Register(root *cobra.Command, provider ClientProvider, format Formatter) {
 	{{ .Parent }}.AddCommand({{ .Child }})
 {{- end }}
 {{ range .TopLevelVars }}
+	{{ . }}.GroupID = GroupID
 	root.AddCommand({{ . }})
 {{- end }}
 }
