@@ -68,7 +68,6 @@ func TestFetchAssemblesSpec(t *testing.T) {
 		require.True(t, ok, "method %q should be present", m.name)
 		assert.Equal(t, m.name, entry.Name)
 		assert.NotEmpty(t, entry.Arguments)
-		assert.NotEmpty(t, entry.Errors)
 	}
 }
 
@@ -129,7 +128,60 @@ func TestFetchSurfacesRTMError(t *testing.T) {
 
 	_, err := fetch.Fetch(context.Background(), "key", "secret", srv.URL+"/rest/")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Invalid API Key")
+	require.ErrorIs(t, err, fetch.ErrRTMAPI)
+	var apiErr *fetch.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 100, apiErr.Code)
+	assert.Equal(t, "Invalid API Key", apiErr.Message)
+}
+
+func TestFetchSurfacesUnexpectedHTTPStatus(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := fetch.Fetch(context.Background(), "key", "secret", srv.URL+"/rest/")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, fetch.ErrUnexpectedStatus)
+}
+
+func TestFetchRejectsMalformedMethodList(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","methods":`))
+	}))
+	t.Cleanup(srv.Close)
+
+	_, err := fetch.Fetch(context.Background(), "key", "secret", srv.URL+"/rest/")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, fetch.ErrRTMAPI, "JSON parse failure should not look like an RTM API error")
+	assert.NotErrorIs(t, err, fetch.ErrUnexpectedStatus, "JSON parse failure should not look like an HTTP failure")
+}
+
+func TestFetchHonoursContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok"}}`))
+		_ = r
+	}))
+	t.Cleanup(func() {
+		close(release)
+		srv.Close()
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := fetch.Fetch(ctx, "key", "secret", srv.URL+"/rest/")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func toMethodList(methods []methodFixture) []map[string]string {

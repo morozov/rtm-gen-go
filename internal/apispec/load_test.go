@@ -27,11 +27,10 @@ func TestLoadFixture(t *testing.T) {
 		}
 	})
 
-	t.Run("every entry has at least one argument and one error", func(t *testing.T) {
+	t.Run("every entry has at least one argument", func(t *testing.T) {
 		t.Parallel()
 		for _, m := range spec {
 			assert.NotEmpty(t, m.Arguments, "method %q should declare arguments", m.Name)
-			assert.NotEmpty(t, m.Errors, "method %q should declare errors", m.Name)
 		}
 	})
 

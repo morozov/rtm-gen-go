@@ -38,11 +38,9 @@ type rawMethod struct {
 	NeedsLogin    string  `json:"needslogin"`
 	NeedsSigning  string  `json:"needssigning"`
 	NeedsTimeline string  `json:"needstimeline"`
-	RequiredPerms string  `json:"requiredperms"`
 	Description   string  `json:"description"`
 	Response      string  `json:"response"`
 	Arguments     rawArgs `json:"arguments"`
-	Errors        rawErrs `json:"errors"`
 }
 
 type rawArgs struct {
@@ -52,16 +50,6 @@ type rawArgs struct {
 type rawArgument struct {
 	Name        string `json:"name"`
 	Optional    string `json:"optional"`
-	Description string `json:"$t"`
-}
-
-type rawErrs struct {
-	Error []rawError `json:"error"`
-}
-
-type rawError struct {
-	Code        string `json:"code"`
-	Message     string `json:"message"`
 	Description string `json:"$t"`
 }
 
@@ -106,20 +94,14 @@ func (rm rawMethod) toMethod() (Method, error) {
 			timeline = true
 		}
 	}
-	errs := make([]MethodError, 0, len(rm.Errors.Error))
-	for _, re := range rm.Errors.Error {
-		errs = append(errs, MethodError(re))
-	}
 	return Method{
 		Name:          rm.Name,
 		NeedsLogin:    login,
 		NeedsSigning:  sign,
 		NeedsTimeline: timeline,
-		RequiredPerms: rm.RequiredPerms,
 		Description:   rm.Description,
 		Response:      rm.Response,
 		Arguments:     args,
-		Errors:        errs,
 	}, nil
 }
 

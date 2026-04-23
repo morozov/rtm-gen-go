@@ -17,23 +17,14 @@ type Method struct {
 	NeedsLogin    bool
 	NeedsSigning  bool
 	NeedsTimeline bool
-	RequiredPerms string
 	Description   string
 	Response      string
 	Arguments     []Argument
-	Errors        []MethodError
 }
 
 // Argument describes one argument accepted by a Method.
 type Argument struct {
 	Name        string
 	Optional    bool
-	Description string
-}
-
-// MethodError describes one error a Method may return.
-type MethodError struct {
-	Code        string
-	Message     string
 	Description string
 }

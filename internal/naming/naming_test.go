@@ -194,25 +194,3 @@ func TestGoField(t *testing.T) {
 	}
 }
 
-func TestFlag(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		input  string
-		expect string
-	}{
-		{"api_key", "api_key", "--api-key"},
-		{"method_name", "method_name", "--method-name"},
-		{"already kebab", "auth-token", "--auth-token"},
-		{"single word", "frob", "--frob"},
-		{"multi underscore", "from_list_id", "--from-list-id"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tc.expect, naming.Flag(tc.input))
-		})
-	}
-}

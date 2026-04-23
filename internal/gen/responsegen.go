@@ -26,10 +26,18 @@ func emitResponseType(method string, root *shapeNode) (string, error) {
 	}
 	// Overlay typeTable before emitting so typed paths not
 	// represented in the sample still become struct fields.
+	// Sort to keep insertion order into root.Children stable —
+	// map iteration is randomised and would otherwise flap when
+	// two roots both need synthesizing.
+	overlayPaths := make([]string, 0, len(types)+len(enums))
 	for path := range types {
-		overlayTypeTablePath(root, path)
+		overlayPaths = append(overlayPaths, path)
 	}
 	for path := range enums {
+		overlayPaths = append(overlayPaths, path)
+	}
+	sort.Strings(overlayPaths)
+	for _, path := range overlayPaths {
 		overlayTypeTablePath(root, path)
 	}
 	if len(root.Children) == 0 && len(root.Attrs) == 0 {

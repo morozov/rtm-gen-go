@@ -268,7 +268,10 @@ func buildCLIMethodData(cfg CLIConfig, sg serviceGroup, m apispec.Method) (cliMe
 			DefaultLit:   defaultLiteralFor(goType),
 		}
 		if enumKey := argEnumFor(m.Name, a.Name); enumKey != "" {
-			def := enumCatalogue[enumKey]
+			def, ok := enumCatalogue[enumKey]
+			if !ok {
+				return cliMethodData{}, fmt.Errorf("method %q arg %q references unknown enum %q", m.Name, a.Name, enumKey)
+			}
 			// Bind cobra to a string so we can validate before
 			// casting into the alias-typed Params field.
 			ca.LocalGoType = "string"

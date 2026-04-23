@@ -76,11 +76,15 @@ func GenerateClient(spec apispec.Spec, cfg Config) ([]string, error) {
 	}
 	written := make([]string, 0, len(groups)+1)
 
+	enums, err := enumsUsedBy(spec)
+	if err != nil {
+		return nil, err
+	}
 	corePath := filepath.Join(cfg.OutDir, "client.go")
 	coreData := coreData{
 		PackageName: cfg.PackageName,
 		Services:    serviceRefs(groups),
-		Enums:       enumsUsedBy(spec),
+		Enums:       enums,
 	}
 	if err := renderGoFile(corePath, coreTmpl, coreData); err != nil {
 		return nil, err
@@ -289,7 +293,7 @@ func groupByService(spec apispec.Spec) ([]serviceGroup, error) {
 	for _, m := range spec {
 		parts := strings.Split(m.Name, ".")
 		if len(parts) < 3 || parts[0] != "rtm" {
-			return nil, fmt.Errorf("method name %q is not rtm.<service>[.<sub>].<method>", m.Name)
+			return nil, fmt.Errorf("method name %q is not rtm.<service>[.<sub>].<method>: %w", m.Name, naming.ErrInvalidMethodName)
 		}
 		sp := strings.Join(parts[1:len(parts)-1], ".")
 		byPath[sp] = append(byPath[sp], m)
@@ -328,8 +332,10 @@ func serviceRefs(groups []serviceGroup) []serviceRef {
 // enumsUsedBy walks typeTable for methods present in spec and
 // returns the subset of enumCatalogue entries actually referenced
 // as an arg or response enum. Keeps the generated client free of
-// enum declarations no emitted code uses.
-func enumsUsedBy(spec apispec.Spec) []enumRenderData {
+// enum declarations no emitted code uses. An unknown enum key is
+// a generator bug — fail loudly so a typo surfaces before the
+// formatter chokes on garbled template output.
+func enumsUsedBy(spec apispec.Spec) ([]enumRenderData, error) {
 	used := map[string]struct{}{}
 	present := map[string]struct{}{}
 	for _, m := range spec {
@@ -353,14 +359,17 @@ func enumsUsedBy(spec apispec.Spec) []enumRenderData {
 	sort.Strings(keys)
 	out := make([]enumRenderData, 0, len(keys))
 	for _, k := range keys {
-		def := enumCatalogue[k]
+		def, ok := enumCatalogue[k]
+		if !ok {
+			return nil, fmt.Errorf("enum %q referenced by typeTable but not in enumCatalogue", k)
+		}
 		vals := make([]enumValueRenderData, len(def.Values))
 		for i, v := range def.Values {
 			vals[i] = enumValueRenderData{GoName: def.GoNames[i], WireValue: v}
 		}
 		out = append(out, enumRenderData{TypeName: def.Name, Values: vals})
 	}
-	return out
+	return out, nil
 }
 
 func buildServiceData(pkgName string, sg serviceGroup) (serviceData, error) {
@@ -432,7 +441,10 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 		}
 		goType, _, wireFunc := argTypeInfo(argTypeFor(m.Name, a.Name))
 		if enumKey := argEnumFor(m.Name, a.Name); enumKey != "" {
-			def := enumCatalogue[enumKey]
+			def, ok := enumCatalogue[enumKey]
+			if !ok {
+				return methodData{}, fmt.Errorf("method %q arg %q references unknown enum %q", m.Name, a.Name, enumKey)
+			}
 			goType = def.Name
 			wireFunc = "string" // enum → wire string is a native Go conversion
 		}

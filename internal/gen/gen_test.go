@@ -84,6 +84,7 @@ func TestGenerateRejectsBadMethodName(t *testing.T) {
 	}
 	_, err := gen.GenerateClient(spec, defaultConfig(t.TempDir()))
 	require.Error(t, err)
+	assert.ErrorIs(t, err, naming.ErrInvalidMethodName)
 }
 
 func TestGenerateRequiresConfig(t *testing.T) {

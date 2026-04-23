@@ -2,7 +2,9 @@ package gen
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 )
@@ -49,8 +51,11 @@ func parseSampleXML(frag string) (*shapeNode, error) {
 
 	for {
 		tok, err := dec.Token()
-		if err != nil {
+		if errors.Is(err, io.EOF) {
 			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("parse sample XML: %w", err)
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
@@ -121,6 +126,24 @@ func parseSampleXML(frag string) (*shapeNode, error) {
 			stack = stack[:len(stack)-1]
 			sibCounts = sibCounts[:len(sibCounts)-1]
 		}
+	}
+
+	// RTM's reflection samples wrap the payload in <rsp stat="…">…</rsp>.
+	// The generated client's unwrap() strips both "rsp" and "stat" before
+	// decoding, so leaving them in the shape would emit a dead
+	// Rsp{Stat string} field on every response type and hide real children
+	// one level below where overlayTypeTablePath looks for them.
+	if len(root.Children) == 1 && root.Children[0].Name == "rsp" {
+		rsp := root.Children[0].Node
+		root.Children = rsp.Children
+		root.Attrs = root.Attrs[:0]
+		for _, a := range rsp.Attrs {
+			if a == "stat" {
+				continue
+			}
+			root.Attrs = append(root.Attrs, a)
+		}
+		root.HasText = rsp.HasText
 	}
 
 	sortAllAttrs(root)

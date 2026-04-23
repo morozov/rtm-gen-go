@@ -21,6 +21,11 @@ import (
 // DefaultBaseURL is the default RTM REST endpoint.
 const DefaultBaseURL = "https://api.rememberthemilk.com/services/rest/"
 
+// DefaultHTTPTimeout bounds a single RTM HTTP exchange when the
+// caller has not supplied its own *http.Client. Replace HTTP on
+// the Client to override.
+const DefaultHTTPTimeout = 30 * time.Second
+
 // ErrMissingAuthToken is returned from calls that require a logged-in
 // user but the Client was not configured with an auth token.
 var ErrMissingAuthToken = errors.New("auth token required")
@@ -76,7 +81,7 @@ func NewClient(apiKey, apiSecret, authToken string) *Client {
 		APISecret: apiSecret,
 		AuthToken: authToken,
 		BaseURL:   DefaultBaseURL,
-		HTTP:      http.DefaultClient,
+		HTTP:      &http.Client{Timeout: DefaultHTTPTimeout},
 	}
 {{- range .Services }}
 	c.{{ .FieldName }} = &{{ .TypeName }}{client: c}
@@ -181,12 +186,15 @@ func buildAPIError(rsp map[string]json.RawMessage) *APIError {
 }
 
 // rtmBool unmarshals RTM's stringly-typed "0"/"1" booleans (and
-// JSON booleans, for tests) into a Go bool. MarshalJSON emits a
-// plain JSON boolean.
+// JSON booleans, for tests) into a Go bool. Marshalling falls back
+// to encoding/json's default for the underlying bool kind.
 type rtmBool bool
 
 func (b *rtmBool) UnmarshalJSON(data []byte) error {
 	switch string(data) {
+	case "null", `""`:
+		*b = false
+		return nil
 	case `"0"`, `"false"`, `false`:
 		*b = false
 		return nil
@@ -202,6 +210,10 @@ func (b *rtmBool) UnmarshalJSON(data []byte) error {
 type rtmInt int64
 
 func (i *rtmInt) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*i = 0
+		return nil
+	}
 	s := strings.Trim(string(data), `"`)
 	if s == "" {
 		*i = 0
@@ -244,7 +256,7 @@ func (t rtmTime) MarshalJSON() ([]byte, error) {
 	if !t.Valid {
 		return []byte("null"), nil
 	}
-	return []byte(`"` + t.Time.Format(time.RFC3339) + `"`), nil
+	return []byte(`"` + t.Time.Format(time.RFC3339Nano) + `"`), nil
 }
 
 // MarshalYAML is called by gopkg.in/yaml.v3 for typed encoding.

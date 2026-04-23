@@ -63,15 +63,6 @@ func GoService(servicePath string) (string, error) {
 	return b.String(), nil
 }
 
-// Flag returns the CLI flag form of an RTM argument name, including
-// the leading "--".
-//
-//	"api_key"     -> "--api-key"
-//	"method_name" -> "--method-name"
-func Flag(argName string) string {
-	return "--" + strings.ReplaceAll(argName, "_", "-")
-}
-
 // initialisms are snake_case tokens rendered in uppercase when they
 // appear as whole segments of a struct field name.
 var initialisms = map[string]string{

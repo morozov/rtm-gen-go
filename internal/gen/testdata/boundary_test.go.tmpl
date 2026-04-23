@@ -114,6 +114,31 @@ func TestTypedResponseCoercesValues(t *testing.T) {
 	}
 }
 
+// TestTypedResponseAcceptsNullScalars exercises the rtmInt/rtmBool
+// null short-circuit. RTM occasionally serialises absent integer
+// or boolean fields as JSON null; the typed wrappers must decode
+// that as a zero value rather than failing the whole response.
+func TestTypedResponseAcceptsNullScalars(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","item":{"id":null,"active":null,"label":"demo"}}}`))
+	}))
+	defer srv.Close()
+
+	c := rtm.NewClient("k", "s", "token")
+	c.BaseURL = srv.URL + "/rest/"
+
+	got, err := c.Fixture.RequiredOnly(context.Background(), rtm.FixtureRequiredOnlyParams{ItemID: "1"})
+	if err != nil {
+		t.Fatalf("call failed on null scalars: %v", err)
+	}
+	if got.Item.ID != 0 {
+		t.Fatalf("null id should decode to 0, got %d", got.Item.ID)
+	}
+	if bool(got.Item.Active) {
+		t.Fatalf("null active should decode to false, got %v", got.Item.Active)
+	}
+}
+
 func TestAPIErrorReturnsTypedError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"rsp":{"stat":"fail","err":{"code":"98","msg":"Login failed / Invalid auth token"}}}`))

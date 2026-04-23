@@ -5,17 +5,49 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/morozov/rtm-gen-go/internal/apispec"
 )
 
-const defaultBaseURL = "https://api.rememberthemilk.com/services/rest/"
+// ErrUnexpectedStatus is returned when RTM responds with a non-200
+// HTTP status. Callers may distinguish transport failures from
+// application failures with errors.Is.
+var ErrUnexpectedStatus = errors.New("unexpected HTTP status")
+
+// ErrRTMAPI is the sentinel every RTM application-level failure
+// wraps. The fetcher returns *APIError, which satisfies
+// errors.Is(err, ErrRTMAPI).
+var ErrRTMAPI = errors.New("rtm api error")
+
+// APIError reports a stat=fail response from the RTM API. Code is
+// parsed from the wire string; on parse failure it is 0 and the
+// raw value is preserved in Message.
+type APIError struct {
+	Code    int
+	Message string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("rtm api error %d: %s", e.Code, e.Message)
+}
+
+func (e *APIError) Is(target error) bool {
+	return target == ErrRTMAPI
+}
+
+const (
+	defaultBaseURL = "https://api.rememberthemilk.com/services/rest/"
+	defaultTimeout = 30 * time.Second
+)
 
 // Fetch retrieves the current RTM reflection spec via live HTTP calls
 // and returns it as an apispec.Spec. baseURL is empty for production
@@ -40,7 +72,7 @@ func FetchRaw(ctx context.Context, apiKey, apiSecret, baseURL string) ([]byte, e
 		apiKey:    apiKey,
 		apiSecret: apiSecret,
 		baseURL:   baseURL,
-		http:      http.DefaultClient,
+		http:      &http.Client{Timeout: defaultTimeout},
 	}
 
 	listBody, err := f.call(ctx, "rtm.reflection.getMethods", nil)
@@ -102,7 +134,7 @@ func (f *fetcher) call(ctx context.Context, method string, params url.Values) ([
 		return nil, fmt.Errorf("read body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: %d", ErrUnexpectedStatus, resp.StatusCode)
 	}
 	return body, nil
 }
@@ -181,7 +213,11 @@ func checkStat(s rspStat) error {
 		return nil
 	}
 	if s.Err != nil {
-		return fmt.Errorf("rtm error %s: %s", s.Err.Code, s.Err.Msg)
+		code, perr := strconv.Atoi(s.Err.Code)
+		if perr != nil {
+			return &APIError{Code: 0, Message: fmt.Sprintf("%s %s", s.Err.Code, s.Err.Msg)}
+		}
+		return &APIError{Code: code, Message: s.Err.Msg}
 	}
-	return fmt.Errorf("rtm returned stat=%q", s.Stat)
+	return &APIError{Code: 0, Message: fmt.Sprintf("rtm returned stat=%q", s.Stat)}
 }
