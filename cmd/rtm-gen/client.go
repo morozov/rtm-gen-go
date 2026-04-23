@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/pflag"
@@ -19,6 +20,9 @@ func runClient(args []string) error {
 	outDir := fs.String("out", "generated/rtm", "output directory for the generated client package")
 	pkgName := fs.String("package", "rtm", "Go package name for the generated code")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, pflag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 

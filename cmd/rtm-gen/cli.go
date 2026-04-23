@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/pflag"
@@ -18,6 +19,9 @@ func runCLI(args []string) error {
 	clientModule := fs.String("client-module", "github.com/morozov/rtm-cli-go/internal/rtm", "import path of the generated client package")
 	clientPkg := fs.String("client-package", "rtm", "Go package name of the generated client")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, pflag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 

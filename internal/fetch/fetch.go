@@ -21,6 +21,18 @@ const defaultBaseURL = "https://api.rememberthemilk.com/services/rest/"
 // and returns it as an apispec.Spec. baseURL is empty for production
 // use; tests pass an httptest server URL.
 func Fetch(ctx context.Context, apiKey, apiSecret, baseURL string) (apispec.Spec, error) {
+	raw, err := FetchRaw(ctx, apiKey, apiSecret, baseURL)
+	if err != nil {
+		return nil, err
+	}
+	return apispec.Parse(raw)
+}
+
+// FetchRaw retrieves the current RTM reflection spec via live HTTP
+// calls and returns the assembled JSON bytes — a map of method name to
+// per-method reflection payload, the exact shape apispec.Parse expects.
+// Callers that only need the parsed spec should use Fetch instead.
+func FetchRaw(ctx context.Context, apiKey, apiSecret, baseURL string) ([]byte, error) {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
@@ -57,7 +69,7 @@ func Fetch(ctx context.Context, apiKey, apiSecret, baseURL string) (apispec.Spec
 	if err != nil {
 		return nil, fmt.Errorf("marshal spec: %w", err)
 	}
-	return apispec.Parse(raw)
+	return raw, nil
 }
 
 type fetcher struct {

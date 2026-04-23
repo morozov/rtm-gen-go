@@ -72,6 +72,53 @@ func TestFetchAssemblesSpec(t *testing.T) {
 	}
 }
 
+func TestFetchRawReturnsMapShape(t *testing.T) {
+	t.Parallel()
+
+	methods := []methodFixture{
+		{
+			name: "rtm.alpha.ping",
+			body: `{"rsp":{"stat":"ok","method":{"name":"rtm.alpha.ping","needslogin":"0","needssigning":"0","requiredperms":"0","description":"Synthetic ping.","response":"<rsp stat=\"ok\"/>","arguments":{"argument":[{"name":"api_key","optional":"0","$t":"API key."}]},"errors":{"error":[{"code":"1","message":"err","$t":"synthetic"}]}}}}`,
+		},
+		{
+			name: "rtm.alpha.beta.nested",
+			body: `{"rsp":{"stat":"ok","method":{"name":"rtm.alpha.beta.nested","needslogin":"0","needssigning":"0","requiredperms":"0","description":"Nested.","response":"<rsp stat=\"ok\"/>","arguments":{"argument":[{"name":"api_key","optional":"0","$t":"API key."}]},"errors":{"error":[{"code":"1","message":"err","$t":"synthetic"}]}}}}`,
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch q.Get("method") {
+		case "rtm.reflection.getMethods":
+			writeJSON(w, map[string]any{
+				"rsp": map[string]any{
+					"stat":    "ok",
+					"methods": map[string]any{"method": toMethodList(methods)},
+				},
+			})
+		case "rtm.reflection.getMethodInfo":
+			if body, ok := findMethod(methods, q.Get("method_name")); ok {
+				_, _ = w.Write([]byte(body))
+				return
+			}
+			http.Error(w, "unknown", http.StatusNotFound)
+		default:
+			http.Error(w, "unexpected", http.StatusBadRequest)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	raw, err := fetch.FetchRaw(context.Background(), "key", "secret", srv.URL+"/rest/")
+	require.NoError(t, err)
+
+	var m map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &m))
+	for _, mf := range methods {
+		_, ok := m[mf.name]
+		assert.True(t, ok, "expected method %q in raw map", mf.name)
+	}
+}
+
 func TestFetchSurfacesRTMError(t *testing.T) {
 	t.Parallel()
 

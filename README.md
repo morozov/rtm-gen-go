@@ -23,36 +23,54 @@ Or run directly from a clone:
 go run ./cmd/rtm-gen <subcommand> [flags]
 ```
 
-### Generate the client package
+### How the generator gets its input
 
 RTM publishes its API shape only through its own reflection
 endpoints (`rtm.reflection.getMethods` plus per-method
 `rtm.reflection.getMethodInfo`) — there is no separate schema
 file the generator can read offline. The generator therefore
-needs a copy of that reflection data at generation time, and
-accepts it in one of two forms. Both subcommands (`client` and
-`cli`) accept the same pair.
+needs a copy of that reflection data at generation time, sourced
+one of two ways:
 
-- **Local file** (`--spec=./api.json`) — a JSON document
-  holding a prior capture of the reflection responses. Use it
-  for CI, scripted regeneration, and any build where
-  reproducibility and offline operation matter more than being
-  up-to-the-minute with RTM. rtm-cli-go's default build takes
-  this route.
-- **Live RTM fetch** (`--key=… --secret=…`) — `rtm-gen` calls
-  the reflection endpoints directly on every run. Use it for
-  first-time generation or to refresh a cached spec against
-  newly added RTM methods or fields.
+- **Local spec file** (`--spec=./spec.json`) for the `client`
+  and `cli` subcommands. Use it for CI, scripted regeneration,
+  and any build where reproducibility and offline operation
+  matter more than being up-to-the-minute with RTM. The `spec`
+  subcommand produces such a file.
+- **Live RTM fetch** (`--key=… --secret=…`) — hits the
+  reflection endpoints directly on every run. The `spec`
+  subcommand always fetches live; `client` and `cli` accept the
+  same flags as a one-shot shortcut that skips the intermediate
+  file.
 
-From a local spec file:
+The recommended flow for a host module is: dump once with
+`rtm-gen spec`, then feed the resulting file to `client` and
+`cli` on every build. rtm-cli-go's `Makefile` does exactly this.
+
+### Dump the reflection spec
+
+```sh
+rtm-gen spec \
+  --key=$RTM_API_KEY --secret=$RTM_API_SECRET \
+  --out=spec.json
+```
+
+Walks RTM's reflection endpoints and writes the assembled dump
+as pretty-printed JSON. With no `--out`, writes to stdout:
+
+```sh
+rtm-gen spec --key=… --secret=… > spec.json
+```
+
+### Generate the client package
 
 ```sh
 rtm-gen client \
-  --spec=./path/to/api.json \
+  --spec=./path/to/spec.json \
   --out=path/to/rtm-cli-go/internal/rtm
 ```
 
-From a live RTM fetch:
+Or, skipping the intermediate file:
 
 ```sh
 rtm-gen client \
@@ -68,7 +86,7 @@ subpackage inside the host CLI module.
 
 ```sh
 rtm-gen cli \
-  --spec=./path/to/api.json \
+  --spec=./path/to/spec.json \
   --out=path/to/rtm-cli-go/internal/commands
 ```
 
@@ -81,12 +99,15 @@ the right Go package path.
 
 ### From the consumer side
 
-`rtm-cli-go` pins the generator via `tool` directive in its
+`rtm-cli-go` pins the generator via a `tool` directive in its
 `go.mod` and drives regeneration with `//go:generate` anchor
-files at `internal/rtm/gen.go` and `internal/commands/gen.go`:
+files at `internal/rtm/gen.go` and `internal/commands/gen.go`.
+Its `Makefile` wraps the full dump-generate-build pipeline:
 
 ```sh
-go generate ./...
+make           # fetch spec.json if missing, regenerate, then build
+make spec      # force-refresh spec.json from RTM
+make generate  # go generate ./... against the existing spec.json
 ```
 
 ## Generated output contract
