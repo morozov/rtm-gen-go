@@ -173,9 +173,11 @@ func parseMethodNames(body []byte) ([]string, error) {
 		Rsp struct {
 			rspStat
 			Methods struct {
-				Method []struct {
-					Name string `json:"name"`
-				} `json:"method"`
+				// RTM's JSON bridge serialises text-only
+				// <method>name</method> children as bare
+				// strings in the method array. Accept that
+				// form directly.
+				Method []string `json:"method"`
 			} `json:"methods"`
 		} `json:"rsp"`
 	}
@@ -186,9 +188,7 @@ func parseMethodNames(body []byte) ([]string, error) {
 		return nil, err
 	}
 	names := make([]string, 0, len(envelope.Rsp.Methods.Method))
-	for _, m := range envelope.Rsp.Methods.Method {
-		names = append(names, m.Name)
-	}
+	names = append(names, envelope.Rsp.Methods.Method...)
 	return names, nil
 }
 

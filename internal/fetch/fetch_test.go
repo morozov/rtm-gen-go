@@ -184,10 +184,13 @@ func TestFetchHonoursContextCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 }
 
-func toMethodList(methods []methodFixture) []map[string]string {
-	out := make([]map[string]string, 0, len(methods))
+// toMethodList mirrors RTM's JSON-of-XML serialisation of
+// rtm.reflection.getMethods: the text-only <method>name</method>
+// children render as plain strings in the method array.
+func toMethodList(methods []methodFixture) []string {
+	out := make([]string, 0, len(methods))
 	for _, m := range methods {
-		out = append(out, map[string]string{"name": m.name})
+		out = append(out, m.name)
 	}
 	return out
 }
