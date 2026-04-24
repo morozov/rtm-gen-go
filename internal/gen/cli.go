@@ -119,6 +119,7 @@ type cliServiceData struct {
 }
 
 type cliMethodData struct {
+	RTMName    string
 	CLIName    string
 	GoName     string
 	Short      string
@@ -300,6 +301,7 @@ func buildCLIMethodData(cfg CLIConfig, sg serviceGroup, m apispec.Method) (cliMe
 	}
 	builder := "new" + strings.TrimSuffix(sg.typeName, "Service") + goName + "Cmd"
 	return cliMethodData{
+		RTMName:    m.Name,
 		CLIName:    cliName,
 		GoName:     goName,
 		Short:      short,

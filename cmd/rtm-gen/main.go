@@ -2,7 +2,8 @@
 // packages for consumption by a hand-written CLI module.
 // Subcommands: `spec` fetches the reflection dump from RTM,
 // `client` emits the RTM API client package, `cli` emits the
-// cobra commands package.
+// cobra commands package, `schemas` emits JSON Schema files
+// for every method's response.
 package main
 
 import (
@@ -30,6 +31,8 @@ func run(args []string) error {
 		return runClient(args[1:])
 	case "cli":
 		return runCLI(args[1:])
+	case "schemas":
+		return runSchemas(args[1:])
 	case "-h", "--help", "help":
 		usage(os.Stdout)
 		return nil
@@ -45,6 +48,7 @@ subcommands:
   spec      fetch the RTM reflection dump and write it as JSON
   client    generate the RTM API client package
   cli       generate the cobra commands package
+  schemas   generate JSON Schema files for every method's response
 `
 
 func usage(w io.Writer) {

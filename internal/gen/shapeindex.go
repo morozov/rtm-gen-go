@@ -36,6 +36,20 @@ type shapeIndex struct {
 	// marked IsOptional so the emitted Go field is a pointer and
 	// drops out of JSON/YAML output when absent.
 	childrenByParent map[string][]*shapeChild
+	// childSetsByParent records the set of child element names
+	// seen under each parent element name, per sample occurrence.
+	// A parent is "chain-compatible" iff every pair of observed
+	// sets is in subset/superset relation. Non-chain parents
+	// (e.g. `<list>`: `{filter}` in lists.* vs `{taskseries}` in
+	// tasks.*) are flagged context-dependent and excluded from
+	// cross-method child union.
+	childSetsByParent map[string][]map[string]bool
+	// contextDependentParents is the set of element names whose
+	// children vary in incompatible ways across samples — element
+	// names where cross-method child union would graft children
+	// from a different semantic context onto a node that shouldn't
+	// carry them.
+	contextDependentParents map[string]struct{}
 	// ambiguousNames carries element names whose shape varies
 	// across sample occurrences (e.g. `<tag>` appears as
 	// text-only inside `<taskseries>` but as attrs-only at the
@@ -64,10 +78,12 @@ var opaqueChildConvention = map[string]string{
 // failures.
 func buildShapeIndex(spec apispec.Spec) (*shapeIndex, error) {
 	idx := &shapeIndex{
-		populatedContainers: map[string][]*shapeChild{},
-		populatedByName:     map[string]*shapeNode{},
-		childrenByParent:    map[string][]*shapeChild{},
-		ambiguousNames:      map[string]struct{}{},
+		populatedContainers:     map[string][]*shapeChild{},
+		populatedByName:         map[string]*shapeNode{},
+		childrenByParent:        map[string][]*shapeChild{},
+		childSetsByParent:       map[string][]map[string]bool{},
+		contextDependentParents: map[string]struct{}{},
+		ambiguousNames:          map[string]struct{}{},
 	}
 	for _, m := range spec {
 		root, err := parseSampleXML(m.Response)
@@ -87,6 +103,13 @@ func buildShapeIndex(spec apispec.Spec) (*shapeIndex, error) {
 						idx.childrenByParent[n.Name] = append(idx.childrenByParent[n.Name], c)
 					}
 				}
+				if len(n.Children) > 0 {
+					set := make(map[string]bool, len(n.Children))
+					for _, c := range n.Children {
+						set[c.Name] = true
+					}
+					idx.childSetsByParent[n.Name] = append(idx.childSetsByParent[n.Name], set)
+				}
 			}
 			if n.Name == "" {
 				return
@@ -104,7 +127,44 @@ func buildShapeIndex(spec apispec.Spec) (*shapeIndex, error) {
 			}
 		})
 	}
+	// Post-process: flag parents whose observed child-name sets
+	// are pairwise chain-incompatible (neither set is a subset of
+	// the other). Those are context-dependent parents (e.g.
+	// `<list>` seen with `{filter}` in lists.* samples and
+	// `{taskseries}` in tasks.*) where cross-method union would
+	// inject children from a different semantic context.
+	for name, sets := range idx.childSetsByParent {
+		if chainCompatible(sets) {
+			continue
+		}
+		idx.contextDependentParents[name] = struct{}{}
+	}
 	return idx, nil
+}
+
+// chainCompatible reports whether every pair of sets is in a
+// subset/superset relation, i.e. they can be ordered by
+// inclusion. Used to distinguish "same element, optional child
+// sometimes present" (chain-compatible) from "same element name,
+// different children in different contexts" (incompatible).
+func chainCompatible(sets []map[string]bool) bool {
+	for i := 0; i < len(sets); i++ {
+		for j := i + 1; j < len(sets); j++ {
+			if !isSubset(sets[i], sets[j]) && !isSubset(sets[j], sets[i]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isSubset(a, b map[string]bool) bool {
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
 }
 
 // copyShapeMinimal returns a new shape node carrying the leaf
@@ -206,6 +266,9 @@ func unionMissingChildren(root *shapeNode, idx *shapeIndex) {
 			return
 		}
 		if _, ambig := idx.ambiguousNames[n.Name]; ambig {
+			return
+		}
+		if _, ctx := idx.contextDependentParents[n.Name]; ctx {
 			return
 		}
 		for _, c := range idx.childrenByParent[n.Name] {
