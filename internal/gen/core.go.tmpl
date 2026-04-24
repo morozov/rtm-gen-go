@@ -3,6 +3,7 @@
 package {{ .PackageName }}
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -183,6 +184,48 @@ func buildAPIError(rsp map[string]json.RawMessage) *APIError {
 		return &APIError{Code: 0, Message: fmt.Sprintf("%s %s", e.Code, e.Msg)}
 	}
 	return &APIError{Code: code, Message: e.Msg}
+}
+
+// decodeResponse unmarshals body into dst while tolerating RTM's
+// XML-to-JSON quirk: an empty XML element is serialised as `[]`,
+// but the same element carrying children is serialised as
+// `{"child":[…]}`. Because RTM only emits `[]` for empty XML
+// elements — never for a genuinely empty slice at a nested
+// position — every `[]` we see can be safely rewritten to `{}`
+// before the typed decode.
+func decodeResponse(body []byte, dst any) error {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return err
+	}
+	v = emptyArraysAsObjects(v)
+	normalized, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(normalized, dst)
+}
+
+// emptyArraysAsObjects walks v and rewrites every empty array
+// to an empty object. Non-empty arrays and maps are recursed into
+// in place; scalars pass through.
+func emptyArraysAsObjects(v any) any {
+	switch x := v.(type) {
+	case []any:
+		if len(x) == 0 {
+			return map[string]any{}
+		}
+		for i, e := range x {
+			x[i] = emptyArraysAsObjects(e)
+		}
+	case map[string]any:
+		for k, e := range x {
+			x[k] = emptyArraysAsObjects(e)
+		}
+	}
+	return v
 }
 
 // rtmBool unmarshals RTM's stringly-typed "0"/"1" booleans (and

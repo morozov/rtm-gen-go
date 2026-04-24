@@ -140,10 +140,11 @@ type serviceRef struct {
 }
 
 type serviceData struct {
-	PackageName string
-	TypeName    string
-	RTMPrefix   string
-	Methods     []methodData
+	PackageName     string
+	TypeName        string
+	RTMPrefix       string
+	Methods         []methodData
+	NeedsJSONImport bool
 }
 
 type methodData struct {
@@ -383,6 +384,9 @@ func buildServiceData(pkgName string, sg serviceGroup) (serviceData, error) {
 		md, err := buildMethodData(sg.typeName, m)
 		if err != nil {
 			return serviceData{}, err
+		}
+		if strings.Contains(md.ResponseGoSource, "json.RawMessage") {
+			data.NeedsJSONImport = true
 		}
 		data.Methods = append(data.Methods, md)
 	}

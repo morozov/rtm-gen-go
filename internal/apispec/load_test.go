@@ -18,7 +18,7 @@ func TestLoadFixture(t *testing.T) {
 
 	spec, err := apispec.Load(fixturePath)
 	require.NoError(t, err)
-	require.Len(t, spec, 5, "fixture should list all synthetic methods")
+	require.Len(t, spec, 6, "fixture should list all synthetic methods")
 
 	t.Run("every entry has a matching name", func(t *testing.T) {
 		t.Parallel()

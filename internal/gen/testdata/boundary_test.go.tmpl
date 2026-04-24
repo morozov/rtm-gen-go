@@ -139,6 +139,52 @@ func TestTypedResponseAcceptsNullScalars(t *testing.T) {
 	}
 }
 
+// TestEmptyContainerDecodesAsEmpty exercises RTM's XML-to-JSON
+// quirk: an empty XML element arrives as `[]` but the typed
+// response expects the object form `{child:[…]}`. The decoder
+// must accept both and yield an empty slice in the populated
+// field.
+func TestEmptyContainerDecodesAsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","items":[]}}`))
+	}))
+	defer srv.Close()
+
+	c := rtm.NewClient("k", "s", "")
+	c.BaseURL = srv.URL + "/rest/"
+
+	got, err := c.Fixture.EmptyContainer(context.Background())
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+	if len(got.Items.Item) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(got.Items.Item))
+	}
+}
+
+// TestEmptyContainerDecodesPopulated verifies that the same
+// method still decodes the populated object form correctly.
+func TestEmptyContainerDecodesPopulated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","items":{"item":[{"id":"7","label":"a"},{"id":"8","label":"b"}]}}}`))
+	}))
+	defer srv.Close()
+
+	c := rtm.NewClient("k", "s", "")
+	c.BaseURL = srv.URL + "/rest/"
+
+	got, err := c.Fixture.EmptyContainer(context.Background())
+	if err != nil {
+		t.Fatalf("call failed: %v", err)
+	}
+	if len(got.Items.Item) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(got.Items.Item))
+	}
+	if got.Items.Item[0].Label != "a" || got.Items.Item[1].Label != "b" {
+		t.Fatalf("items decoded incorrectly: %+v", got.Items.Item)
+	}
+}
+
 func TestAPIErrorReturnsTypedError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"rsp":{"stat":"fail","err":{"code":"98","msg":"Login failed / Invalid auth token"}}}`))
