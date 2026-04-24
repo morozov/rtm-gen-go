@@ -105,7 +105,10 @@ func TestRunHelpReturnsNil(t *testing.T) {
 func TestRunSpecRequiresCredentials(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct{ name string; args []string }{
+	cases := []struct {
+		name string
+		args []string
+	}{
 		{"no flags", nil},
 		{"key only", []string{"--key", "k"}},
 		{"secret only", []string{"--secret", "s"}},

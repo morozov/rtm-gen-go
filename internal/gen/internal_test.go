@@ -9,8 +9,8 @@ func TestArgTypeInfoCoversEveryArgType(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		in                          argType
-		wantGo, wantFlag, wantWire  string
+		in                         argType
+		wantGo, wantFlag, wantWire string
 	}{
 		{argTypeBool, "bool", "BoolVar", "rtmFormatBool"},
 		{argTypeInt, "int64", "Int64Var", "rtmFormatInt"},

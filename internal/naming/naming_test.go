@@ -193,4 +193,3 @@ func TestGoField(t *testing.T) {
 		})
 	}
 }
-
