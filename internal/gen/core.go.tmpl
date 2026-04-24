@@ -3,11 +3,10 @@
 package {{ .PackageName }}
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -90,25 +89,26 @@ func NewClient(apiKey, apiSecret, authToken string) *Client {
 	return c
 }
 
-// Call issues an RTM API request and returns the inner body of a
-// successful response with the envelope's "stat" field removed. On
-// a stat=fail response, it returns *APIError wrapping ErrRTMAPI.
-func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimeline, needsSigning bool, params url.Values) (json.RawMessage, error) {
+// Call issues an RTM API request, decodes the response envelope,
+// and on stat=ok unmarshals the inner payload into dst. On a
+// stat=fail response it returns *APIError wrapping ErrRTMAPI.
+// dst may be nil when the caller does not need the payload.
+func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimeline, needsSigning bool, params url.Values, dst any) error {
 	if params == nil {
 		params = url.Values{}
 	}
 	params.Set("method", method)
-	params.Set("format", "json")
+	params.Set("format", "xml")
 	params.Set("api_key", c.APIKey)
 	if needsLogin {
 		if c.AuthToken == "" {
-			return nil, fmt.Errorf("%s: %w", method, ErrMissingAuthToken)
+			return fmt.Errorf("%s: %w", method, ErrMissingAuthToken)
 		}
 		params.Set("auth_token", c.AuthToken)
 	}
 	if needsTimeline {
 		if c.Timeline == "" {
-			return nil, fmt.Errorf("%s: %w", method, ErrMissingTimeline)
+			return fmt.Errorf("%s: %w", method, ErrMissingTimeline)
 		}
 		params.Set("timeline", c.Timeline)
 	}
@@ -117,121 +117,118 @@ func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimel
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"?"+params.Encode(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: build request: %w", method, err)
+		return fmt.Errorf("%s: build request: %w", method, err)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: request: %w", method, err)
+		return fmt.Errorf("%s: request: %w", method, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("%s: read body: %w", method, err)
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %w: %d", method, ErrUnexpectedStatus, resp.StatusCode)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return fmt.Errorf("%s: %w: %d", method, ErrUnexpectedStatus, resp.StatusCode)
 	}
-	return unwrap(method, body)
+	return decodeEnvelope(method, resp.Body, dst)
 }
 
-// unwrap parses the RTM envelope and returns either the inner body
-// (with "stat" removed) on success, or an *APIError on failure.
-func unwrap(method string, body []byte) (json.RawMessage, error) {
-	var outer struct {
-		Rsp map[string]json.RawMessage `json:"rsp"`
+// decodeEnvelope reads the <rsp stat=…> wrapper from body. On
+// stat=ok it unmarshals the wrapper's inner payload into dst (or
+// skips it when dst is nil). On stat=fail it returns *APIError.
+func decodeEnvelope(method string, body io.Reader, dst any) error {
+	dec := xml.NewDecoder(body)
+	var rspStart xml.StartElement
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return fmt.Errorf("%s: no <rsp> element in response", method)
+			}
+			return fmt.Errorf("%s: parse envelope: %w", method, err)
+		}
+		if s, ok := tok.(xml.StartElement); ok {
+			rspStart = s
+			break
+		}
 	}
-	if err := json.Unmarshal(body, &outer); err != nil {
-		return nil, fmt.Errorf("%s: parse envelope: %w", method, err)
-	}
-	statRaw, ok := outer.Rsp["stat"]
-	if !ok {
-		return nil, fmt.Errorf("%s: missing stat in response", method)
+	if rspStart.Name.Local != "rsp" {
+		return fmt.Errorf("%s: expected <rsp>, got <%s>", method, rspStart.Name.Local)
 	}
 	var stat string
-	if err := json.Unmarshal(statRaw, &stat); err != nil {
-		return nil, fmt.Errorf("%s: parse stat: %w", method, err)
+	for _, a := range rspStart.Attr {
+		if a.Name.Local == "stat" {
+			stat = a.Value
+		}
 	}
-	delete(outer.Rsp, "stat")
-
 	switch stat {
 	case "ok":
-		inner, err := json.Marshal(outer.Rsp)
-		if err != nil {
-			return nil, fmt.Errorf("%s: marshal inner: %w", method, err)
+		if dst == nil {
+			return dec.Skip()
 		}
-		return inner, nil
+		if err := dec.DecodeElement(dst, &rspStart); err != nil {
+			return fmt.Errorf("%s: decode response: %w", method, err)
+		}
+		return nil
 	case "fail":
-		return nil, buildAPIError(outer.Rsp)
+		return readAPIError(dec)
 	default:
-		return nil, fmt.Errorf("%s: unexpected stat %q", method, stat)
+		return fmt.Errorf("%s: unexpected stat %q", method, stat)
 	}
 }
 
-func buildAPIError(rsp map[string]json.RawMessage) *APIError {
-	errRaw, ok := rsp["err"]
-	if !ok {
-		return &APIError{Code: 0, Message: "unknown error"}
-	}
-	var e struct {
-		Code string `json:"code"`
-		Msg  string `json:"msg"`
-	}
-	if err := json.Unmarshal(errRaw, &e); err != nil {
-		return &APIError{Code: 0, Message: "unparseable error payload"}
-	}
-	code, perr := strconv.Atoi(e.Code)
-	if perr != nil {
-		return &APIError{Code: 0, Message: fmt.Sprintf("%s %s", e.Code, e.Msg)}
-	}
-	return &APIError{Code: code, Message: e.Msg}
-}
-
-// decodeResponse unmarshals body into dst while tolerating RTM's
-// XML-to-JSON quirk: an empty XML element is serialised as `[]`,
-// but the same element carrying children is serialised as
-// `{"child":[…]}`. Because RTM only emits `[]` for empty XML
-// elements — never for a genuinely empty slice at a nested
-// position — every `[]` we see can be safely rewritten to `{}`
-// before the typed decode.
-func decodeResponse(body []byte, dst any) error {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return err
-	}
-	v = emptyArraysAsObjects(v)
-	normalized, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(normalized, dst)
-}
-
-// emptyArraysAsObjects walks v and rewrites every empty array
-// to an empty object. Non-empty arrays and maps are recursed into
-// in place; scalars pass through.
-func emptyArraysAsObjects(v any) any {
-	switch x := v.(type) {
-	case []any:
-		if len(x) == 0 {
-			return map[string]any{}
+// readAPIError walks the children of an already-open <rsp
+// stat="fail"> element looking for <err/>, decodes its code and
+// msg attributes, and returns an *APIError. A missing or
+// unparseable <err/> still produces an *APIError — never a nil
+// error — so stat=fail always surfaces as a typed failure.
+func readAPIError(dec *xml.Decoder) error {
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return &APIError{Code: 0, Message: "unknown error"}
 		}
-		for i, e := range x {
-			x[i] = emptyArraysAsObjects(e)
-		}
-	case map[string]any:
-		for k, e := range x {
-			x[k] = emptyArraysAsObjects(e)
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local != "err" {
+				if err := dec.Skip(); err != nil {
+					return &APIError{Code: 0, Message: "unknown error"}
+				}
+				continue
+			}
+			var payload struct {
+				Code string `xml:"code,attr"`
+				Msg  string `xml:"msg,attr"`
+			}
+			if err := dec.DecodeElement(&payload, &t); err != nil {
+				return &APIError{Code: 0, Message: "unparseable error payload"}
+			}
+			code, perr := strconv.Atoi(payload.Code)
+			if perr != nil {
+				return &APIError{Code: 0, Message: fmt.Sprintf("%s %s", payload.Code, payload.Msg)}
+			}
+			return &APIError{Code: code, Message: payload.Msg}
+		case xml.EndElement:
+			return &APIError{Code: 0, Message: "unknown error"}
 		}
 	}
-	return v
 }
 
-// rtmBool unmarshals RTM's stringly-typed "0"/"1" booleans (and
-// JSON booleans, for tests) into a Go bool. Marshalling falls back
-// to encoding/json's default for the underlying bool kind.
+// rtmBool unmarshals RTM's stringly-typed "0"/"1" booleans into a
+// Go bool. UnmarshalXMLAttr handles attribute values;
+// UnmarshalXML handles text-only element content. Marshalling
+// (for JSON/YAML output) falls back to encoding/json's default.
 type rtmBool bool
+
+func (b *rtmBool) UnmarshalXMLAttr(attr xml.Attr) error {
+	return b.fromWire(attr.Value)
+}
+
+func (b *rtmBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var s string
+	if err := d.DecodeElement(&s, &start); err != nil {
+		return err
+	}
+	return b.fromWire(s)
+}
 
 func (b *rtmBool) UnmarshalJSON(data []byte) error {
 	switch string(data) {
@@ -248,9 +245,34 @@ func (b *rtmBool) UnmarshalJSON(data []byte) error {
 	return fmt.Errorf("rtmBool: invalid value %s", data)
 }
 
-// rtmInt unmarshals RTM's stringly-typed integers (and JSON
-// numbers) into int64. Empty strings parse to 0.
+func (b *rtmBool) fromWire(s string) error {
+	switch s {
+	case "", "0", "false":
+		*b = false
+		return nil
+	case "1", "true":
+		*b = true
+		return nil
+	}
+	return fmt.Errorf("rtmBool: invalid value %q", s)
+}
+
+// rtmInt unmarshals RTM's stringly-typed integers into int64.
+// Empty strings parse to 0, matching RTM's "absent numeric"
+// convention.
 type rtmInt int64
+
+func (i *rtmInt) UnmarshalXMLAttr(attr xml.Attr) error {
+	return i.fromWire(attr.Value)
+}
+
+func (i *rtmInt) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var s string
+	if err := d.DecodeElement(&s, &start); err != nil {
+		return err
+	}
+	return i.fromWire(s)
+}
 
 func (i *rtmInt) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
@@ -258,13 +280,17 @@ func (i *rtmInt) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 	s := strings.Trim(string(data), `"`)
+	return i.fromWire(s)
+}
+
+func (i *rtmInt) fromWire(s string) error {
 	if s == "" {
 		*i = 0
 		return nil
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
-		return fmt.Errorf("rtmInt: invalid value %s: %w", data, err)
+		return fmt.Errorf("rtmInt: invalid value %q: %w", s, err)
 	}
 	*i = rtmInt(n)
 	return nil
@@ -279,6 +305,18 @@ type rtmTime struct {
 	Valid bool
 }
 
+func (t *rtmTime) UnmarshalXMLAttr(attr xml.Attr) error {
+	return t.fromWire(attr.Value)
+}
+
+func (t *rtmTime) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var s string
+	if err := d.DecodeElement(&s, &start); err != nil {
+		return err
+	}
+	return t.fromWire(s)
+}
+
 func (t *rtmTime) UnmarshalJSON(data []byte) error {
 	s := string(data)
 	if s == `""` || s == "null" {
@@ -286,9 +324,18 @@ func (t *rtmTime) UnmarshalJSON(data []byte) error {
 		t.Valid = false
 		return nil
 	}
-	parsed, err := time.Parse(time.RFC3339, strings.Trim(s, `"`))
+	return t.fromWire(strings.Trim(s, `"`))
+}
+
+func (t *rtmTime) fromWire(s string) error {
+	if s == "" {
+		t.Time = time.Time{}
+		t.Valid = false
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		return fmt.Errorf("rtmTime: invalid value %s: %w", data, err)
+		return fmt.Errorf("rtmTime: invalid value %q: %w", s, err)
 	}
 	t.Time = parsed
 	t.Valid = true
@@ -300,6 +347,16 @@ func (t rtmTime) MarshalJSON() ([]byte, error) {
 		return []byte("null"), nil
 	}
 	return []byte(`"` + t.Time.Format(time.RFC3339Nano) + `"`), nil
+}
+
+// IsZero reports whether the timestamp is absent. Paired with
+// the `omitzero` JSON tag on rtmTime fields (Go 1.24+), this
+// lets json.Marshal drop the key entirely when the RTM wire
+// carried an empty string — matching the ",omitempty" convention
+// on string and slice fields without forcing every caller to
+// switch to a pointer type.
+func (t rtmTime) IsZero() bool {
+	return !t.Valid
 }
 
 // MarshalYAML is called by gopkg.in/yaml.v3 for typed encoding.

@@ -117,19 +117,23 @@ func taskIDArgsPlus(extras map[string]argType) map[string]argType {
 // is covered by taskResponseEnums, a sibling helper.
 func taskResponseFields(prefix string) map[string]fieldType {
 	return map[string]fieldType{
-		prefix + ".id":                                 fieldTypeInt,
-		prefix + ".taskseries[].id":                    fieldTypeInt,
-		prefix + ".taskseries[].created":               fieldTypeTime,
-		prefix + ".taskseries[].modified":              fieldTypeTime,
-		prefix + ".taskseries[].task[].id":             fieldTypeInt,
-		prefix + ".taskseries[].task[].has_due_time":   fieldTypeBool,
-		prefix + ".taskseries[].task[].has_start_time": fieldTypeBool,
-		prefix + ".taskseries[].task[].postponed":      fieldTypeInt,
-		prefix + ".taskseries[].task[].added":          fieldTypeTime,
-		prefix + ".taskseries[].task[].completed":      fieldTypeTime,
-		prefix + ".taskseries[].task[].deleted":        fieldTypeTime,
-		prefix + ".taskseries[].task[].due":            fieldTypeTime,
-		prefix + ".taskseries[].task[].start":          fieldTypeTime,
+		prefix + ".id":                                     fieldTypeInt,
+		prefix + ".taskseries[].id":                        fieldTypeInt,
+		prefix + ".taskseries[].created":                   fieldTypeTime,
+		prefix + ".taskseries[].modified":                  fieldTypeTime,
+		prefix + ".taskseries[].task[].id":                 fieldTypeInt,
+		prefix + ".taskseries[].task[].has_due_time":       fieldTypeBool,
+		prefix + ".taskseries[].task[].has_start_time":     fieldTypeBool,
+		prefix + ".taskseries[].task[].postponed":          fieldTypeInt,
+		prefix + ".taskseries[].task[].added":              fieldTypeTime,
+		prefix + ".taskseries[].task[].completed":          fieldTypeTime,
+		prefix + ".taskseries[].task[].deleted":            fieldTypeTime,
+		prefix + ".taskseries[].task[].due":                fieldTypeTime,
+		prefix + ".taskseries[].task[].start":              fieldTypeTime,
+		prefix + ".taskseries[].notes.note[].id":           fieldTypeInt,
+		prefix + ".taskseries[].notes.note[].created":      fieldTypeTime,
+		prefix + ".taskseries[].notes.note[].modified":     fieldTypeTime,
+		prefix + ".taskseries[].participants.contact[].id": fieldTypeInt,
 	}
 }
 

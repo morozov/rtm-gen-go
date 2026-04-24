@@ -106,16 +106,25 @@ func findChild(n *shapeNode, name string) *shapeChild {
 	return nil
 }
 
+// isCollectionWrapper reports whether a node exists purely to
+// wrap a single kind of child element — no attributes, no text,
+// exactly one distinct child name. Such wrappers are flattened
+// in the emitted Go type using encoding/xml's `parent>child`
+// path syntax so callers write `resp.Contacts[0]` instead of
+// `resp.Contacts.Contact[0]`.
+func isCollectionWrapper(n *shapeNode) bool {
+	return len(n.Attrs) == 0 && !n.HasText && len(n.Children) == 1
+}
+
 // renderNodeType returns the Go type expression for a node at the
 // given dot-path. The returned string is a complete Go type (e.g.
 // `[]struct{...}` or `rtmInt` or `string`).
 func renderNodeType(node *shapeNode, path []string, types map[string]fieldType, enums map[string]string) (string, error) {
-	// Self-closed empty element: pass-through untyped. RTM's JSON
-	// renders these as `[]` when empty and `{"child":[…]}` when
-	// populated — the shape is inconsistent, so we leave it as a
-	// raw blob for the caller to inspect if they care.
+	// Self-closed empty element with no structure: preserve the
+	// raw inner XML so the rare caller that cares can inspect it.
+	// Sample-time self-closing doesn't guarantee runtime emptiness.
 	if node.SelfClosed && len(node.Attrs) == 0 && len(node.Children) == 0 {
-		return "json.RawMessage", nil
+		return "struct {\n\tInnerXML string `xml:\",innerxml\" json:\"-\"`\n}", nil
 	}
 	// Text-only leaf: a scalar whose type may be overridden by
 	// typeTable.
@@ -130,9 +139,11 @@ func renderNodeAsObject(node *shapeNode, path []string, types map[string]fieldTy
 	var b strings.Builder
 	b.WriteString("struct {\n")
 	// Text alongside attrs/children (e.g. <time timezone="..">VAL</time>)
-	// surfaces as a `$t` JSON key in RTM's XML-to-JSON bridge.
+	// surfaces as chardata on an inline Text field. The JSON key
+	// keeps RTM's historical `$t` convention so output formatters
+	// that re-render via json.Marshal produce stable keys.
 	if node.HasText && (len(node.Attrs) > 0 || len(node.Children) > 0) {
-		b.WriteString("\tText string `json:\"$t,omitempty\"`\n")
+		b.WriteString("\tText string `xml:\",chardata\" json:\"$t,omitempty\"`\n")
 	}
 	for _, attr := range node.Attrs {
 		attrPath := append(append([]string{}, path...), attr)
@@ -141,36 +152,90 @@ func renderNodeAsObject(node *shapeNode, path []string, types map[string]fieldTy
 		b.WriteString(naming.GoField(attr))
 		b.WriteString(" ")
 		b.WriteString(goType)
-		b.WriteString(" `json:\"")
+		b.WriteString(" `xml:\"")
 		b.WriteString(attr)
-		b.WriteString(jsonTagSuffix(goType))
+		b.WriteString(",attr")
+		b.WriteString(omitSuffix(goType))
+		b.WriteString("\" json:\"")
+		b.WriteString(attr)
+		b.WriteString(jsonOmitSuffix(goType))
 		b.WriteString("\"`\n")
 	}
 	for _, child := range node.Children {
-		childSeg := child.Name
-		if child.IsArray {
-			childSeg += "[]"
-		}
-		childPath := append(append([]string{}, path...), childSeg)
-		inner, err := renderNodeType(child.Node, childPath, types, enums)
-		if err != nil {
+		if err := renderChildField(&b, child, path, types, enums); err != nil {
 			return "", err
 		}
-		goType := inner
-		if child.IsArray {
-			goType = "[]" + inner
+	}
+	b.WriteString("}")
+	return b.String(), nil
+}
+
+// renderChildField emits one child field, honouring the
+// collection-wrapper flattening rule (see isCollectionWrapper).
+// When flattened, the wrapper element still participates in the
+// dot-path passed downstream for typeTable lookup: a path like
+// `contacts.contact[].id` resolves the same with or without
+// flattening. The JSON tag uses the wrapper name so output
+// formatters see the user-visible collection name, not the
+// inner element name.
+func renderChildField(b *strings.Builder, child *shapeChild, path []string, types map[string]fieldType, enums map[string]string) error {
+	if !child.IsArray && isCollectionWrapper(child.Node) {
+		gc := child.Node.Children[0]
+		gcSeg := gc.Name
+		if gc.IsArray {
+			gcSeg += "[]"
 		}
+		gcPath := append(append([]string{}, path...), child.Name, gcSeg)
+		inner, err := renderNodeType(gc.Node, gcPath, types, enums)
+		if err != nil {
+			return err
+		}
+		goType := "[]" + inner
 		b.WriteString("\t")
 		b.WriteString(naming.GoField(child.Name))
 		b.WriteString(" ")
 		b.WriteString(goType)
-		b.WriteString(" `json:\"")
+		b.WriteString(" `xml:\"")
 		b.WriteString(child.Name)
-		b.WriteString(jsonTagSuffix(goType))
-		b.WriteString("\"`\n")
+		b.WriteString(">")
+		b.WriteString(gc.Name)
+		b.WriteString("\" json:\"")
+		b.WriteString(child.Name)
+		b.WriteString(",omitempty\"`\n")
+		return nil
 	}
-	b.WriteString("}")
-	return b.String(), nil
+	childSeg := child.Name
+	if child.IsArray {
+		childSeg += "[]"
+	}
+	childPath := append(append([]string{}, path...), childSeg)
+	inner, err := renderNodeType(child.Node, childPath, types, enums)
+	if err != nil {
+		return err
+	}
+	goType := inner
+	switch {
+	case child.IsArray:
+		goType = "[]" + inner
+	case child.IsOptional && strings.HasPrefix(inner, "struct {"):
+		// A struct that's present in other methods' samples but
+		// absent from this one. Pointer-wrap so json.Marshal can
+		// drop it via omitempty when the runtime element doesn't
+		// appear; encoding/xml auto-allocates on decode when the
+		// element is present.
+		goType = "*" + inner
+	}
+	b.WriteString("\t")
+	b.WriteString(naming.GoField(child.Name))
+	b.WriteString(" ")
+	b.WriteString(goType)
+	b.WriteString(" `xml:\"")
+	b.WriteString(child.Name)
+	b.WriteString("\" json:\"")
+	b.WriteString(child.Name)
+	b.WriteString(jsonOmitSuffix(goType))
+	b.WriteString("\"`\n")
+	return nil
 }
 
 // scalarGoType returns the Go type for a leaf at the given path.
@@ -197,13 +262,26 @@ func scalarGoType(path []string, types map[string]fieldType, enums map[string]st
 	return "string"
 }
 
-// jsonTagSuffix returns ",omitempty" for Go types where
-// omitempty is safe (strings; pointers; slices; raw messages).
-// Typed wrappers (rtmBool, rtmInt, rtmTime) always serialise —
-// even zero values carry meaning.
-func jsonTagSuffix(goType string) string {
-	if goType == "string" || strings.HasPrefix(goType, "[]") || goType == "json.RawMessage" {
+// omitSuffix returns ",omitempty" for Go types where empty is a
+// sensible "absent" sentinel — strings, slices, and pointers to
+// structs. Typed wrappers (rtmBool, rtmInt, rtmTime) always
+// serialise because zero values carry meaning (false, 0, null).
+func omitSuffix(goType string) string {
+	if goType == "string" || strings.HasPrefix(goType, "[]") || strings.HasPrefix(goType, "*") {
 		return ",omitempty"
 	}
 	return ""
+}
+
+// jsonOmitSuffix is the JSON-tag counterpart to omitSuffix. It
+// behaves the same except for rtmTime, which uses `omitzero`
+// (Go 1.24+) paired with rtmTime.IsZero to drop absent
+// timestamps from JSON/YAML output instead of rendering them as
+// null. rtmBool and rtmInt keep their zero values (false, 0)
+// because those carry meaning distinct from absence.
+func jsonOmitSuffix(goType string) string {
+	if goType == "rtmTime" {
+		return ",omitzero"
+	}
+	return omitSuffix(goType)
 }

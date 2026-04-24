@@ -71,6 +71,10 @@ func GenerateClient(spec apispec.Spec, cfg Config) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	idx, err := buildShapeIndex(spec)
+	if err != nil {
+		return nil, fmt.Errorf("build shape index: %w", err)
+	}
 	if err := os.MkdirAll(cfg.OutDir, dirPerm); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", cfg.OutDir, err)
 	}
@@ -92,7 +96,7 @@ func GenerateClient(spec apispec.Spec, cfg Config) ([]string, error) {
 	written = append(written, corePath)
 
 	for _, sg := range groups {
-		data, err := buildServiceData(cfg.PackageName, sg)
+		data, err := buildServiceData(cfg.PackageName, sg, idx)
 		if err != nil {
 			return nil, fmt.Errorf("build service %s: %w", sg.servicePath, err)
 		}
@@ -140,11 +144,10 @@ type serviceRef struct {
 }
 
 type serviceData struct {
-	PackageName     string
-	TypeName        string
-	RTMPrefix       string
-	Methods         []methodData
-	NeedsJSONImport bool
+	PackageName string
+	TypeName    string
+	RTMPrefix   string
+	Methods     []methodData
 }
 
 type methodData struct {
@@ -373,7 +376,7 @@ func enumsUsedBy(spec apispec.Spec) ([]enumRenderData, error) {
 	return out, nil
 }
 
-func buildServiceData(pkgName string, sg serviceGroup) (serviceData, error) {
+func buildServiceData(pkgName string, sg serviceGroup, idx *shapeIndex) (serviceData, error) {
 	data := serviceData{
 		PackageName: pkgName,
 		TypeName:    sg.typeName,
@@ -381,12 +384,9 @@ func buildServiceData(pkgName string, sg serviceGroup) (serviceData, error) {
 		Methods:     make([]methodData, 0, len(sg.methods)),
 	}
 	for _, m := range sg.methods {
-		md, err := buildMethodData(sg.typeName, m)
+		md, err := buildMethodData(sg.typeName, m, idx)
 		if err != nil {
 			return serviceData{}, err
-		}
-		if strings.Contains(md.ResponseGoSource, "json.RawMessage") {
-			data.NeedsJSONImport = true
 		}
 		data.Methods = append(data.Methods, md)
 	}
@@ -433,7 +433,7 @@ func argEnumFor(method, argName string) string {
 	return info.ArgEnums[argName]
 }
 
-func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
+func buildMethodData(serviceType string, m apispec.Method, idx *shapeIndex) (methodData, error) {
 	goName, err := naming.GoMethod(m.Name)
 	if err != nil {
 		return methodData{}, err
@@ -473,6 +473,9 @@ func buildMethodData(serviceType string, m apispec.Method) (methodData, error) {
 	shape, err := parseSampleXML(m.Response)
 	if err != nil {
 		return methodData{}, fmt.Errorf("parse sample response for %s: %w", m.Name, err)
+	}
+	if idx != nil {
+		enrichOpaqueContainers(shape, idx)
 	}
 	responseSrc, err := emitResponseType(m.Name, shape)
 	if err != nil {

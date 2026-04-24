@@ -10,7 +10,7 @@ import (
 	"test.local/client/rtm"
 )
 
-const okEmpty = `{"rsp":{"stat":"ok"}}`
+const okEmpty = `<rsp stat="ok"/>`
 
 // TestNoArgCallHitsRTM exercises the wire side: no credentials
 // required, method name set, no auth_token or api_sig.
@@ -32,6 +32,9 @@ func TestNoArgCallHitsRTM(t *testing.T) {
 	if q.Get("method") != "rtm.fixture.noArg" {
 		t.Fatalf("wrong method: %s", q.Get("method"))
 	}
+	if q.Get("format") != "xml" {
+		t.Fatalf("wrong format: %s", q.Get("format"))
+	}
 	if q.Get("api_key") != "test-key" {
 		t.Fatalf("api_key not auto-injected, got %q", q.Get("api_key"))
 	}
@@ -47,7 +50,7 @@ func TestSignedCallInjectsAuthAndSig(t *testing.T) {
 	var captured *http.Request
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		captured = r
-		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","item":{"id":"1","active":"1","label":"x"}}}`))
+		_, _ = w.Write([]byte(`<rsp stat="ok"><item id="1" active="1" label="x"/></rsp>`))
 	}))
 	defer srv.Close()
 
@@ -85,14 +88,14 @@ func TestMissingAuthTokenReturnsSentinel(t *testing.T) {
 }
 
 // TestTypedResponseCoercesValues walks the full flow: stringly-
-// typed wire values are unmarshalled into typed Go fields. The
+// typed XML attributes are unmarshalled into typed Go fields. The
 // fixture method rtm.fixture.requiredOnly has item.id and
 // item.active in typeTable, so the generated response struct
 // carries rtmInt and rtmBool fields respectively. item.label is
 // absent from typeTable, so it stays a plain string.
 func TestTypedResponseCoercesValues(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","item":{"id":"42","active":"1","label":"demo"}}}`))
+		_, _ = w.Write([]byte(`<rsp stat="ok"><item id="42" active="1" label="demo"/></rsp>`))
 	}))
 	defer srv.Close()
 
@@ -114,13 +117,13 @@ func TestTypedResponseCoercesValues(t *testing.T) {
 	}
 }
 
-// TestTypedResponseAcceptsNullScalars exercises the rtmInt/rtmBool
-// null short-circuit. RTM occasionally serialises absent integer
-// or boolean fields as JSON null; the typed wrappers must decode
-// that as a zero value rather than failing the whole response.
-func TestTypedResponseAcceptsNullScalars(t *testing.T) {
+// TestTypedResponseAcceptsEmptyScalars exercises the rtmInt/rtmBool
+// empty-string short-circuit. RTM emits "" for absent integer or
+// boolean attributes; the typed wrappers must decode that as a
+// zero value rather than failing the whole response.
+func TestTypedResponseAcceptsEmptyScalars(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","item":{"id":null,"active":null,"label":"demo"}}}`))
+		_, _ = w.Write([]byte(`<rsp stat="ok"><item id="" active="" label="demo"/></rsp>`))
 	}))
 	defer srv.Close()
 
@@ -129,24 +132,21 @@ func TestTypedResponseAcceptsNullScalars(t *testing.T) {
 
 	got, err := c.Fixture.RequiredOnly(context.Background(), rtm.FixtureRequiredOnlyParams{ItemID: "1"})
 	if err != nil {
-		t.Fatalf("call failed on null scalars: %v", err)
+		t.Fatalf("call failed on empty scalars: %v", err)
 	}
 	if got.Item.ID != 0 {
-		t.Fatalf("null id should decode to 0, got %d", got.Item.ID)
+		t.Fatalf("empty id should decode to 0, got %d", got.Item.ID)
 	}
 	if bool(got.Item.Active) {
-		t.Fatalf("null active should decode to false, got %v", got.Item.Active)
+		t.Fatalf("empty active should decode to false, got %v", got.Item.Active)
 	}
 }
 
-// TestEmptyContainerDecodesAsEmpty exercises RTM's XML-to-JSON
-// quirk: an empty XML element arrives as `[]` but the typed
-// response expects the object form `{child:[…]}`. The decoder
-// must accept both and yield an empty slice in the populated
-// field.
+// TestEmptyContainerDecodesAsEmpty verifies that a self-closing
+// container element decodes as an empty slice, not a decode error.
 func TestEmptyContainerDecodesAsEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","items":[]}}`))
+		_, _ = w.Write([]byte(`<rsp stat="ok"><items/></rsp>`))
 	}))
 	defer srv.Close()
 
@@ -157,16 +157,18 @@ func TestEmptyContainerDecodesAsEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
-	if len(got.Items.Item) != 0 {
-		t.Fatalf("expected 0 items, got %d", len(got.Items.Item))
+	if len(got.Items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(got.Items))
 	}
 }
 
 // TestEmptyContainerDecodesPopulated verifies that the same
-// method still decodes the populated object form correctly.
+// method decodes a populated container correctly. The collection
+// wrapper `<items><item/>…</items>` flattens in Go to a plain
+// []struct{...}: callers write got.Items[i], not got.Items.Item[i].
 func TestEmptyContainerDecodesPopulated(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"rsp":{"stat":"ok","items":{"item":[{"id":"7","label":"a"},{"id":"8","label":"b"}]}}}`))
+		_, _ = w.Write([]byte(`<rsp stat="ok"><items><item id="7" label="a"/><item id="8" label="b"/></items></rsp>`))
 	}))
 	defer srv.Close()
 
@@ -177,17 +179,17 @@ func TestEmptyContainerDecodesPopulated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call failed: %v", err)
 	}
-	if len(got.Items.Item) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(got.Items.Item))
+	if len(got.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(got.Items))
 	}
-	if got.Items.Item[0].Label != "a" || got.Items.Item[1].Label != "b" {
-		t.Fatalf("items decoded incorrectly: %+v", got.Items.Item)
+	if got.Items[0].Label != "a" || got.Items[1].Label != "b" {
+		t.Fatalf("items decoded incorrectly: %+v", got.Items)
 	}
 }
 
 func TestAPIErrorReturnsTypedError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"rsp":{"stat":"fail","err":{"code":"98","msg":"Login failed / Invalid auth token"}}}`))
+		_, _ = w.Write([]byte(`<rsp stat="fail"><err code="98" msg="Login failed / Invalid auth token"/></rsp>`))
 	}))
 	defer srv.Close()
 

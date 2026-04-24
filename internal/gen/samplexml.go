@@ -28,6 +28,12 @@ type shapeChild struct {
 	Name    string
 	Node    *shapeNode
 	IsArray bool
+	// IsOptional is true when this child was injected via
+	// cross-method union (see shapeindex.go) rather than observed
+	// in the current method's own sample. Optional struct-valued
+	// children render as pointers so an absent element drops out
+	// of JSON/YAML output cleanly.
+	IsOptional bool
 }
 
 // parseSampleXML turns an RTM reflection `response` XML fragment
@@ -102,7 +108,12 @@ func parseSampleXML(frag string) (*shapeNode, error) {
 				// the synthetic wrapper. Ignore.
 				continue
 			}
-			text := strings.TrimSpace(string(t))
+			// RTM's samples use literal `...` inside parent
+			// elements to mean "more of the same child below".
+			// That's sample shorthand, not real text content —
+			// strip it before deciding whether the element has
+			// meaningful chardata.
+			text := strings.TrimSpace(strings.ReplaceAll(string(t), "...", ""))
 			if text != "" {
 				stack[len(stack)-1].HasText = true
 			}
