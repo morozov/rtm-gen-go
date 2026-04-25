@@ -36,15 +36,14 @@ type Config struct {
 // hiddenArgs lists argument names the generator drops from both
 // the client params structs and the CLI flags. Two reasons an
 // argument lands here:
-//   - The client fills it in automatically during Call (api_key,
-//     auth_token, timeline).
+//   - Pure protocol plumbing the client always supplies from
+//     config (api_key, auth_token).
 //   - Exposing it would break the client: callback wraps the
 //     response in a JSONP call, producing a body the JSON decoder
 //     cannot parse.
 var hiddenArgs = map[string]struct{}{
 	"api_key":    {},
 	"auth_token": {},
-	"timeline":   {},
 	"callback":   {},
 }
 

@@ -107,10 +107,12 @@ func (c *Client) Call(ctx context.Context, method string, needsLogin, needsTimel
 		params.Set("auth_token", c.AuthToken)
 	}
 	if needsTimeline {
-		if c.Timeline == "" {
+		if c.Timeline != "" {
+			params.Set("timeline", c.Timeline)
+		}
+		if params.Get("timeline") == "" {
 			return fmt.Errorf("%s: %w", method, ErrMissingTimeline)
 		}
-		params.Set("timeline", c.Timeline)
 	}
 	if needsSigning {
 		params.Set("api_sig", c.Sign(params))
