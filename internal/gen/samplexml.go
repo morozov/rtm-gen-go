@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
 
@@ -17,7 +16,7 @@ import (
 // from typeTable, not from samples.
 type shapeNode struct {
 	Name       string
-	Attrs      []string      // attribute names, sorted
+	Attrs      []string      // attribute names, in first-appearance order
 	Children   []*shapeChild // in first-appearance order
 	HasText    bool          // non-empty text content alongside attrs/children
 	SelfClosed bool          // every instance seen was a self-closing empty element
@@ -157,13 +156,5 @@ func parseSampleXML(frag string) (*shapeNode, error) {
 		root.HasText = rsp.HasText
 	}
 
-	sortAllAttrs(root)
 	return root, nil
-}
-
-func sortAllAttrs(n *shapeNode) {
-	sort.Strings(n.Attrs)
-	for _, c := range n.Children {
-		sortAllAttrs(c.Node)
-	}
 }

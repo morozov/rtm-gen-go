@@ -64,7 +64,6 @@ func overlayTypeTablePath(root *shapeNode, path string) {
 				return
 			}
 			cur.Attrs = append(cur.Attrs, name)
-			sort.Strings(cur.Attrs)
 			return
 		}
 		child := findChild(cur, name)

@@ -1,8 +1,6 @@
 package gen
 
 import (
-	"sort"
-
 	"github.com/morozov/rtm-gen-go/internal/apispec"
 )
 
@@ -198,7 +196,6 @@ func mergeShapeByName(into, from *shapeNode) {
 			seen[a] = struct{}{}
 		}
 	}
-	sort.Strings(into.Attrs)
 	if from.HasText {
 		into.HasText = true
 	}
