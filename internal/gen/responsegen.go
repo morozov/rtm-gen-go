@@ -200,7 +200,8 @@ func renderChildField(b *strings.Builder, child *shapeChild, path []string, type
 		b.WriteString(gc.Name)
 		b.WriteString("\" json:\"")
 		b.WriteString(child.Name)
-		b.WriteString(",omitempty\"`\n")
+		b.WriteString(jsonOmitSuffixForChild(goType, path))
+		b.WriteString("\"`\n")
 		return nil
 	}
 	childSeg := child.Name
@@ -232,7 +233,7 @@ func renderChildField(b *strings.Builder, child *shapeChild, path []string, type
 	b.WriteString(child.Name)
 	b.WriteString("\" json:\"")
 	b.WriteString(child.Name)
-	b.WriteString(jsonOmitSuffix(goType))
+	b.WriteString(jsonOmitSuffixForChild(goType, path))
 	b.WriteString("\"`\n")
 	return nil
 }
@@ -283,4 +284,18 @@ func jsonOmitSuffix(goType string) string {
 		return ",omitzero"
 	}
 	return omitSuffix(goType)
+}
+
+// jsonOmitSuffixForChild is jsonOmitSuffix with one carve-out: a
+// top-level slice field never carries omitempty, so an empty
+// collection serialises as `[]` rather than vanishing from the
+// JSON object. Without this, a method whose response type is a
+// single slice (e.g. a list-getter that returns nothing) would
+// marshal to `{}`, which downstream formatters can mistake for
+// a no-op success.
+func jsonOmitSuffixForChild(goType string, path []string) string {
+	if len(path) == 0 && strings.HasPrefix(goType, "[]") {
+		return ""
+	}
+	return jsonOmitSuffix(goType)
 }

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -169,11 +170,34 @@ func decodeEnvelope(method string, body io.Reader, dst any) error {
 		if err := dec.DecodeElement(dst, &rspStart); err != nil {
 			return fmt.Errorf("%s: decode response: %w", method, err)
 		}
+		initTopLevelSlices(dst)
 		return nil
 	case "fail":
 		return readAPIError(dec)
 	default:
 		return fmt.Errorf("%s: unexpected stat %q", method, stat)
+	}
+}
+
+// initTopLevelSlices replaces nil slice fields at the top level
+// of dst with empty, non-nil slices of the same element type.
+// Top-level slice fields in response structs carry no
+// ,omitempty in their JSON tag, so a nil slice would marshal as
+// `null`; this pass turns the empty case into `[]`.
+func initTopLevelSlices(dst any) {
+	v := reflect.ValueOf(dst)
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return
+	}
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.Kind() == reflect.Slice && f.IsNil() && f.CanSet() {
+			f.Set(reflect.MakeSlice(f.Type(), 0, 0))
+		}
 	}
 }
 

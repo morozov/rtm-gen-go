@@ -26,6 +26,33 @@ func TestArgTypeInfoCoversEveryArgType(t *testing.T) {
 	}
 }
 
+func TestJSONOmitSuffixForChildKeepsTopLevelSlices(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		goType string
+		path   []string
+		want   string
+	}{
+		{"top-level slice keeps empty array", "[]struct{...}", nil, ""},
+		{"nested slice stays optional", "[]struct{...}", []string{"items"}, ",omitempty"},
+		{"top-level string still optional", "string", nil, ",omitempty"},
+		{"top-level pointer still optional", "*struct{...}", nil, ",omitempty"},
+		{"top-level rtmTime still omitzero", "rtmTime", nil, ",omitzero"},
+		{"top-level rtmInt still required", "rtmInt", nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := jsonOmitSuffixForChild(tc.goType, tc.path); got != tc.want {
+				t.Errorf("jsonOmitSuffixForChild(%q, %v) = %q, want %q",
+					tc.goType, tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDefaultLiteralForMatchesZeroValue(t *testing.T) {
 	t.Parallel()
 

@@ -262,7 +262,12 @@ func schemaForChild(child *shapeChild, path []string, types map[string]fieldType
 			"type":  "array",
 			"items": itemSchema,
 		}
-		// Slices with omitempty → not required.
+		// Top-level slice fields keep their empty value (no
+		// omitempty in the Go tag) and are therefore required.
+		// Nested slices remain optional.
+		if len(path) == 0 {
+			*required = append(*required, child.Name)
+		}
 		return
 	}
 
@@ -277,6 +282,9 @@ func schemaForChild(child *shapeChild, path []string, types map[string]fieldType
 		props[child.Name] = map[string]any{
 			"type":  "array",
 			"items": inner,
+		}
+		if len(path) == 0 {
+			*required = append(*required, child.Name)
 		}
 		return
 	}
